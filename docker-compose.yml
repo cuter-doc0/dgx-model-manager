@@ -1,0 +1,220 @@
+# DGX Spark Model Manager - Docker Compose Stack
+# Multi-engine inference management with LiteLLM routing
+
+services:
+  # ============================================
+  # Model Manager - Main Control Panel
+  # ============================================
+  model-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dgx-model-manager
+    restart: unless-stopped
+    group_add:
+      - "0"  # Root group, ensures socket access
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "${MANAGER_PORT:-4600}:4600"
+    volumes:
+      - ${MODELS_PATH:-./models}:/models
+      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./config:/app/config
+      - ./engines:/app/engines
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - HF_HOME=/root/.cache/huggingface
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - HF_TOKEN=${HF_TOKEN:-}
+    networks:
+      - model-network
+    depends_on:
+      - ollama
+      - litellm
+
+  # ============================================
+  # Ollama - Primary Model Manager
+  # ============================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: dgx-ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "${OLLAMA_PORT:-4610}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    networks:
+      - model-network
+
+  # ============================================
+  # LiteLLM - Unified API Router
+  # ============================================
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: dgx-litellm
+    restart: unless-stopped
+    ports:
+      - "${LITELLM_PORT:-4601}:4000"
+    volumes:
+      - ./config/litellm_config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--host", "0.0.0.0"]
+    environment:
+      - LITELLM_LOG=INFO
+    networks:
+      - model-network
+    depends_on:
+      - ollama
+
+  # ============================================
+  # SGLang - High-Performance Inference
+  # ============================================
+  sglang:
+    image: lmsysorg/sglang:latest
+    container_name: dgx-sglang
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "${SGLANG_PORT:-4620}:30000"
+    volumes:
+      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    networks:
+      - model-network
+    profiles:
+      - engines
+
+  # ============================================
+  # vLLM - Alternative Inference Engine
+  # ============================================
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: dgx-vllm
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "${VLLM_PORT:-4630}:8000"
+    volumes:
+      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    networks:
+      - model-network
+    profiles:
+      - engines
+
+  # ============================================
+  # llama.cpp - GGUF Model Server
+  # ============================================
+  llamacpp:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    container_name: dgx-llamacpp
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "${LLAMACPP_PORT:-4640}:8080"
+    volumes:
+      - ${MODELS_PATH:-./models}:/models
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    networks:
+      - model-network
+    profiles:
+      - engines
+
+  # ============================================
+  # LocalAI - Multi-Modal AI
+  # ============================================
+  localai:
+    image: localai/localai:latest
+    container_name: dgx-localai
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "${LOCALAI_PORT:-4650}:9090"
+    volumes:
+      - localai-models:/models
+      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - DEBUG=false
+    networks:
+      - model-network
+    profiles:
+      - engines
+
+  # ============================================
+  # ComfyUI - Image Generation
+  # ============================================
+  comfyui:
+    image: yanwk/comfyui-boot:latest
+    container_name: dgx-comfyui
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "${COMFYUI_PORT:-4660}:8188"
+    volumes:
+      - comfyui-data:/home/runner/ComfyUI
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    networks:
+      - model-network
+    profiles:
+      - engines
+
+volumes:
+  ollama-data:
+  localai-models:
+  comfyui-data:
+
+networks:
+  model-network:
+    driver: bridge

@@ -1,0 +1,19 @@
+# Runtime config (created from config.example.json)
+config/config.json
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Docker
+models/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+*.swp

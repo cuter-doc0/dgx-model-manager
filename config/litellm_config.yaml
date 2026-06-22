@@ -1,0 +1,50 @@
+# LiteLLM Configuration
+# This config routes requests to available inference engines
+
+model_list:
+  # Ollama models - automatically discovered via wildcard
+  - model_name: ollama/*
+    litellm_params:
+      model: ollama/*
+      api_base: http://dgx-ollama:11434
+
+  # SGLang models - add entries as needed
+  # Example:
+  # - model_name: sglang/my-model
+  #   litellm_params:
+  #     model: openai/my-model
+  #     api_base: http://dgx-sglang:30000
+  #     api_key: none
+
+  # vLLM models - add entries as needed
+  # Example:
+  # - model_name: vllm/my-model
+  #   litellm_params:
+  #     model: openai/my-model
+  #     api_base: http://dgx-vllm:8000
+  #     api_key: none
+
+  # llama.cpp models - add entries as needed
+  # Example:
+  # - model_name: llamacpp/my-model
+  #   litellm_params:
+  #     model: openai/my-model
+  #     api_base: http://dgx-llamacpp:8080
+  #     api_key: none
+
+litellm_settings:
+  # Master key for API access (optional)
+  # master_key: sk-your-key-here
+  
+  # Drop any unsupported params
+  drop_params: true
+  
+  # Enable request caching
+  set_verbose: false
+
+general_settings:
+  # Disable spend logging if not using LiteLLM cloud
+  disable_spend_logs: true
+  
+  # Disable success logging
+  disable_success_logs: true

@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DGX Spark Model Manager</title>
+    <style>
+        :root {
+            --primary: #76b900;
+            --primary-dark: #5a8f00;
+            --bg-dark: #0d1117;
+            --bg-card: #161b22;
+            --bg-input: #21262d;
+            --bg-hover: #30363d;
+            --text: #e6edf3;
+            --text-muted: #8b949e;
+            --border: #30363d;
+            --danger: #f85149;
+            --success: #3fb950;
+            --warning: #d29922;
+            --info: #58a6ff;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg-dark); color: var(--text); min-height: 100vh; }
+        .container { max-width: 1600px; margin: 0 auto; padding: 16px; }
+        
+        /* Status Bar */
+        .status-bar { display: flex; gap: 8px; padding: 12px 16px; background: var(--bg-card); border-radius: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; border: 1px solid var(--border); }
+        .status-item { display: flex; align-items: center; gap: 6px; padding: 4px 12px; background: var(--bg-dark); border-radius: 16px; font-size: 12px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
+        .status-dot.offline { background: var(--danger); }
+        .status-dot.warning { background: var(--warning); }
+        
+        /* Header */
+        header { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: var(--bg-card); border-radius: 8px; margin-bottom: 16px; border: 1px solid var(--border); }
+        .logo { display: flex; align-items: center; gap: 12px; }
+        .logo h1 { font-size: 1.4rem; color: var(--primary); }
+        .logo span { color: var(--text-muted); font-size: 0.85rem; }
+        .system-info { display: flex; gap: 16px; }
+        .info-chip { padding: 6px 12px; background: var(--bg-dark); border-radius: 6px; font-size: 12px; }
+        .info-chip label { color: var(--text-muted); margin-right: 4px; }
+        .info-chip value { color: var(--primary); font-weight: 600; }
+        
+        /* Tabs */
+        .tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--bg-card); padding: 4px; border-radius: 8px; border: 1px solid var(--border); overflow-x: auto; }
+        .tab { padding: 10px 20px; background: transparent; border: none; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-size: 13px; font-weight: 500; transition: all 0.2s; white-space: nowrap; }
+        .tab:hover { background: var(--bg-hover); color: var(--text); }
+        .tab.active { background: var(--primary); color: #000; }
+        
+        /* Panels */
+        .panel { display: none; background: var(--bg-card); padding: 20px; border-radius: 8px; border: 1px solid var(--border); }
+        .panel.active { display: block; }
+        
+        /* Grid */
+        .grid { display: grid; gap: 16px; }
+        .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        .grid-3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+        .grid-4 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+        
+        /* Cards */
+        .card { background: var(--bg-dark); padding: 16px; border-radius: 8px; border: 1px solid var(--border); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .card-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .card-body { font-size: 13px; color: var(--text-muted); }
+        
+        /* Engine Card */
+        .engine-card { position: relative; }
+        .engine-card .status-indicator { position: absolute; top: 12px; right: 12px; }
+        .engine-card .port-badge { font-size: 11px; padding: 2px 8px; background: var(--bg-hover); border-radius: 4px; color: var(--text-muted); }
+        .engine-card .running-model { margin-top: 8px; padding: 8px; background: var(--bg-card); border-radius: 4px; font-size: 12px; }
+        
+        /* Buttons */
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-primary { background: var(--primary); color: #000; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-secondary { background: var(--bg-hover); color: var(--text); }
+        .btn-secondary:hover { background: var(--border); }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: #da3633; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .btn-group { display: flex; gap: 6px; }
+        
+        /* Inputs */
+        input[type="text"], input[type="number"], select, textarea {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 13px;
+        }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); }
+        .input-group { display: flex; gap: 8px; }
+        .input-group input { flex: 1; }
+        
+        /* Badges */
+        .badge { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+        .badge-success { background: rgba(63, 185, 80, 0.2); color: var(--success); }
+        .badge-danger { background: rgba(248, 81, 73, 0.2); color: var(--danger); }
+        .badge-warning { background: rgba(210, 153, 34, 0.2); color: var(--warning); }
+        .badge-info { background: rgba(88, 166, 255, 0.2); color: var(--info); }
+        
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+        th { background: var(--bg-dark); color: var(--text-muted); font-weight: 500; }
+        tr:hover { background: var(--bg-hover); }
+        
+        /* Loading */
+        .loading { text-align: center; padding: 40px; color: var(--text-muted); }
+        .spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid var(--border); border-radius: 50%; border-top-color: var(--primary); animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Empty State */
+        .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+        .empty-state svg { width: 60px; height: 60px; margin-bottom: 16px; opacity: 0.5; }
+        
+        /* Modal */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+        .modal.active { display: flex; }
+        .modal-content { background: var(--bg-card); padding: 24px; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-header h2 { font-size: 18px; }
+        .close-btn { background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; }
+        .close-btn:hover { color: var(--text); }
+        
+        /* Form */
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted); }
+        
+        /* Log Viewer */
+        .log-viewer { background: var(--bg-dark); padding: 12px; border-radius: 6px; font-family: 'Monaco', 'Menlo', monospace; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+        
+        /* Progress Bar */
+        .progress { height: 6px; background: var(--bg-hover); border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--primary); transition: width 0.3s; }
+        
+        /* Section Header */
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .section-title { font-size: 16px; font-weight: 600; }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .status-bar { flex-direction: column; }
+            .header { flex-direction: column; gap: 16px; }
+            .system-info { width: 100%; justify-content: space-between; }
+            .tabs { overflow-x: auto; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Status Bar -->
+        <div class="status-bar" id="status-bar">
+            <div class="status-item">
+                <span class="status-dot" id="dot-manager"></span>
+                <span>Manager</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot" id="dot-ollama"></span>
+                <span>Ollama</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot" id="dot-litellm"></span>
+                <span>LiteLLM</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot" id="dot-sglang"></span>
+                <span>SGLang</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot" id="dot-vllm"></span>
+                <span>vLLM</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot" id="dot-llamacpp"></span>
+                <span>llama.cpp</span>
+            </div>
+            <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
+                <span id="gpu-info" style="font-size: 12px; color: var(--text-muted);">GPUs: -</span>
+                <span id="ram-info" style="font-size: 12px; color: var(--text-muted);">RAM: -</span>
+                <button class="btn btn-sm btn-secondary" onclick="refreshAll()">Refresh</button>
+            </div>
+        </div>
+        
+        <!-- Header -->
+        <header>
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                    <line x1="8" y1="21" x2="16" y2="21"/>
+                    <line x1="12" y1="17" x2="12" y2="21"/>
+                </svg>
+                <div>
+                    <h1>DGX Spark Model Manager</h1>
+                    <span>Multi-engine inference management</span>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" data-tab="overview">Overview</button>
+            <button class="tab" data-tab="ollama">Ollama</button>
+            <button class="tab" data-tab="litellm">LiteLLM</button>
+            <button class="tab" data-tab="engines">Engines</button>
+            <button class="tab" data-tab="inventory">Inventory</button>
+            <button class="tab" data-tab="huggingface">HuggingFace</button>
+            <button class="tab" data-tab="logs">Logs</button>
+            <button class="tab" data-tab="settings">Settings</button>
+        </div>
+        
+        <!-- Overview Panel -->
+        <div class="panel active" id="panel-overview">
+            <div class="section-header">
+                <h2 class="section-title">System Overview</h2>
+            </div>
+            <div class="grid grid-4" id="overview-stats"></div>
+            <h3 style="margin: 20px 0 12px; font-size: 14px;">Engine Status</h3>
+            <div class="grid grid-3" id="overview-engines"></div>
+        </div>
+        
+        <!-- Ollama Panel -->
+        <div class="panel" id="panel-ollama">
+            <div class="section-header">
+                <h2 class="section-title">Ollama Models</h2>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="showPullModal()">Pull Model</button>
+                    <button class="btn btn-secondary" onclick="loadOllamaModels()">Refresh</button>
+                </div>
+            </div>
+            <div id="ollama-models"></div>
+        </div>
+        
+        <!-- LiteLLM Panel -->
+        <div class="panel" id="panel-litellm">
+            <div class="section-header">
+                <h2 class="section-title">LiteLLM Routing</h2>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="applyWildcard()">Apply Wildcard</button>
+                    <button class="btn btn-secondary" onclick="loadLiteLLM()">Refresh</button>
+                </div>
+            </div>
+            <div class="grid grid-2">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Available Models</span>
+                        <span class="badge badge-info" id="litellm-model-count">0</span>
+                    </div>
+                    <div class="card-body" id="litellm-models"></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Routes</span>
+                    </div>
+                    <div class="card-body" id="litellm-routes"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Engines Panel -->
+        <div class="panel" id="panel-engines">
+            <div class="section-header">
+                <h2 class="section-title">Inference Engines</h2>
+            </div>
+            <div class="grid grid-2" id="engines-grid"></div>
+        </div>
+        
+        <!-- Inventory Panel -->
+        <div class="panel" id="panel-inventory">
+            <div class="section-header">
+                <h2 class="section-title">Model Inventory</h2>
+                <div class="input-group" style="max-width: 400px;">
+                    <input type="text" id="inventory-search" placeholder="Search models...">
+                    <button class="btn btn-primary" onclick="loadInventory()">Search</button>
+                </div>
+            </div>
+            <div id="inventory-content"></div>
+        </div>
+        
+        <!-- HuggingFace Panel -->
+        <div class="panel" id="panel-huggingface">
+            <div class="section-header">
+                <h2 class="section-title">HuggingFace Browser</h2>
+            </div>
+            <div class="input-group" style="margin-bottom: 16px;">
+                <input type="text" id="hf-search" placeholder="Search models (e.g., Qwen3.6, NVFP4, text-generation)">
+                <button class="btn btn-primary" onclick="searchHF()">Search</button>
+            </div>
+            <div id="hf-results"></div>
+        </div>
+        
+        <!-- Logs Panel -->
+        <div class="panel" id="panel-logs">
+            <div class="section-header">
+                <h2 class="section-title">Engine Logs</h2>
+                <select id="log-engine" style="width: 200px;" onchange="loadEngineLogs()">
+                    <option value="ollama">Ollama</option>
+                    <option value="sglang">SGLang</option>
+                    <option value="vllm">vLLM</option>
+                    <option value="llamacpp">llama.cpp</option>
+                    <option value="localai">LocalAI</option>
+                    <option value="comfyui">ComfyUI</option>
+                </select>
+            </div>
+            <div class="log-viewer" id="log-content">Select an engine to view logs</div>
+        </div>
+        
+        <!-- Settings Panel -->
+        <div class="panel" id="panel-settings">
+            <div class="section-header">
+                <h2 class="section-title">Settings</h2>
+            </div>
+            <div class="grid grid-2">
+                <div class="card">
+                    <div class="card-header"><span class="card-title">Service URLs</span></div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>Ollama URL</label>
+                            <input type="text" id="url-ollama" value="http://dgx-ollama:11434">
+                        </div>
+                        <div class="form-group">
+                            <label>LiteLLM URL</label>
+                            <input type="text" id="url-litellm" value="http://dgx-litellm:4000">
+                        </div>
+                        <div class="form-group">
+                            <label>SGLang URL</label>
+                            <input type="text" id="url-sglang" value="http://dgx-sglang:30000">
+                        </div>
+                        <div class="form-group">
+                            <label>vLLM URL</label>
+                            <input type="text" id="url-vllm" value="http://dgx-vllm:8000">
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><span class="card-title">Docker Status</span></div>
+                    <div class="card-body" id="docker-status">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Pull Model Modal -->
+    <div class="modal" id="pull-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Pull Ollama Model</h2>
+                <button class="close-btn" onclick="closeModal('pull-modal')">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>Model Name</label>
+                <input type="text" id="pull-model-name" placeholder="e.g., llama3.2, qwen2.5:7b">
+            </div>
+            <button class="btn btn-primary" style="width: 100%;" onclick="pullModel()">Pull Model</button>
+        </div>
+    </div>
+    
+    <!-- Serve Model Modal -->
+    <div class="modal" id="serve-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Start Engine</h2>
+                <button class="close-btn" onclick="closeModal('serve-modal')">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>Model</label>
+                <input type="text" id="serve-model" placeholder="Model path or name">
+            </div>
+            <div class="form-group">
+                <label>Port</label>
+                <input type="number" id="serve-port" value="30000">
+            </div>
+            <div class="form-group">
+                <label>Tensor Parallel Size</label>
+                <input type="number" id="serve-tp" value="1" min="1">
+            </div>
+            <button class="btn btn-primary" style="width: 100%;" onclick="startEngineFromModal()">Start</button>
+        </div>
+    </div>
+    
+    <script>
+        // API helpers
+        const api = {
+            async get(url) {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(await res.text());
+                return res.json();
+            },
+            async post(url, data) {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!res.ok) throw new Error(await res.text());
+                return res.json();
+            },
+            async delete(url) {
+                const res = await fetch(url, { method: 'DELETE' });
+                if (!res.ok) throw new Error(await res.text());
+                return res.json();
+            }
+        };
+        
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(`panel-${tab.dataset.tab}`).classList.add('active');
+                
+                // Load data for tab
+                const tabName = tab.dataset.tab;
+                if (tabName === 'ollama') loadOllamaModels();
+                else if (tabName === 'litellm') loadLiteLLM();
+                else if (tabName === 'engines') loadEngines();
+                else if (tabName === 'inventory') loadInventory();
+                else if (tabName === 'logs') loadEngineLogs();
+                else if (tabName === 'settings') loadSettings();
+            });
+        });
+        
+        // Initial load
+        refreshAll();
+        
+        // Auto-refresh status every 30s
+        setInterval(refreshAll, 30000);
+        
+        async function refreshAll() {
+            await loadOverview();
+            updateStatusBar();
+        }
+        
+        async function updateStatusBar() {
+            try {
+                const status = await api.get('/api/status');
+                
+                // Update dots
+                document.getElementById('dot-manager').className = 'status-dot online';
+                document.getElementById('dot-ollama').className = `status-dot ${status.ollama_available ? 'online' : 'offline'}`;
+                document.getElementById('dot-litellm').className = `status-dot ${status.litellm_available ? 'online' : 'offline'}`;
+                
+                // Update engine dots
+                status.engines?.forEach(engine => {
+                    const dot = document.getElementById(`dot-${engine.engine}`);
+                    if (dot) {
+                        dot.className = `status-dot ${engine.status === 'running' ? 'online' : engine.status === 'error' ? 'warning' : 'offline'}`;
+                    }
+                });
+                
+                // Update system info
+                if (status.system) {
+                    const gpus = status.system.gpus?.length || 0;
+                    document.getElementById('gpu-info').textContent = `GPUs: ${gpus}`;
+                    const ramGB = (status.system.ram_used / (1024**3)).toFixed(1);
+                    const ramTotal = (status.system.ram_total / (1024**3)).toFixed(1);
+                    document.getElementById('ram-info').textContent = `RAM: ${ramGB}/${ramTotal} GB`;
+                }
+            } catch (e) {
+                console.error('Status update failed:', e);
+            }
+        }
+        
+        async function loadOverview() {
+            try {
+                const status = await api.get('/api/status');
+                
+                // Stats
+                const statsHtml = `
+                    <div class="card">
+                        <div class="card-title" style="margin-bottom: 8px;">GPUs</div>
+                        <div style="font-size: 24px; font-weight: 600; color: var(--primary);">${status.system?.gpus?.length || 0}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">${status.system?.gpus?.[0]?.name || 'N/A'}</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title" style="margin-bottom: 8px;">RAM Usage</div>
+                        <div style="font-size: 24px; font-weight: 600; color: var(--primary);">${((status.system?.ram_used || 0) / (1024**3)).toFixed(1)} GB</div>
+                        <div class="progress"><div class="progress-fill" style="width: ${((status.system?.ram_used || 0) / (status.system?.ram_total || 1) * 100)}%"></div></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title" style="margin-bottom: 8px;">Disk Free</div>
+                        <div style="font-size: 24px; font-weight: 600; color: var(--primary);">${((status.system?.disk_free || 0) / (1024**3)).toFixed(1)} GB</div>
+                        <div class="progress"><div class="progress-fill" style="width: ${((status.system?.disk_used || 0) / (status.system?.disk_total || 1) * 100)}%"></div></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title" style="margin-bottom: 8px;">Uptime</div>
+                        <div style="font-size: 24px; font-weight: 600; color: var(--primary);">${status.system?.uptime || '-'}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">${status.system?.hostname || ''}</div>
+                    </div>
+                `;
+                document.getElementById('overview-stats').innerHTML = statsHtml;
+                
+                // Engine cards
+                const enginesHtml = (status.engines || []).map(e => `
+                    <div class="card engine-card">
+                        <div class="status-indicator">
+                            <span class="badge badge-${e.status === 'running' ? 'success' : e.status === 'error' ? 'danger' : 'warning'}">${e.status}</span>
+                        </div>
+                        <div class="card-title" style="text-transform: capitalize;">${e.engine}</div>
+                        <div class="port-badge">Port ${e.port}</div>
+                        ${e.running_model ? `<div class="running-model">Running: ${e.running_model}</div>` : ''}
+                        <div class="btn-group" style="margin-top: 12px;">
+                            ${e.status === 'running' 
+                                ? `<button class="btn btn-sm btn-danger" onclick="controlEngine('${e.engine}', 'stop')">Stop</button>`
+                                : `<button class="btn btn-sm btn-primary" onclick="showServeModal('${e.engine}')">Start</button>`
+                            }
+                            <button class="btn btn-sm btn-secondary" onclick="viewEngineLogs('${e.engine}')">Logs</button>
+                        </div>
+                    </div>
+                `).join('');
+                document.getElementById('overview-engines').innerHTML = enginesHtml;
+                
+            } catch (e) {
+                console.error('Overview load failed:', e);
+            }
+        }
+        
+        async function loadOllamaModels() {
+            try {
+                const data = await api.get('/api/ollama/models');
+                const models = data.models || [];
+                
+                if (models.length === 0) {
+                    document.getElementById('ollama-models').innerHTML = `
+                        <div class="empty-state">
+                            <p>No Ollama models installed</p>
+                            <button class="btn btn-primary" onclick="showPullModal()" style="margin-top: 12px;">Pull a Model</button>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                const html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Model</th>
+                                <th>Size</th>
+                                <th>Modified</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${models.map(m => `
+                                <tr>
+                                    <td><strong>${m.name}</strong></td>
+                                    <td>${m.size_human}</td>
+                                    <td>${new Date(m.modified_at).toLocaleDateString()}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger" onclick="deleteOllamaModel('${m.name}')">Delete</button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                document.getElementById('ollama-models').innerHTML = html;
+            } catch (e) {
+                document.getElementById('ollama-models').innerHTML = `<div class="empty-state">Error loading Ollama models</div>`;
+            }
+        }
+        
+        async function loadLiteLLM() {
+            try {
+                const models = await api.get('/api/litellm/models');
+                const config = await api.get('/api/litellm/config');
+                
+                document.getElementById('litellm-model-count').textContent = models.models?.length || 0;
+                
+                document.getElementById('litellm-models').innerHTML = (models.models || []).map(m => `
+                    <div style="padding: 8px; background: var(--bg-input); border-radius: 4px; margin-bottom: 8px;">
+                        <strong>${m.id || m.name || 'Unknown'}</strong>
+                    </div>
+                `).join('') || '<p>No models configured</p>';
+                
+                document.getElementById('litellm-routes').innerHTML = (config?.model_list || []).map(r => `
+                    <div style="padding: 8px; background: var(--bg-input); border-radius: 4px; margin-bottom: 8px; display: flex; justify-content: space-between;">
+                        <span>${r.model_name}</span>
+                        <button class="btn btn-sm btn-danger" onclick="removeRoute('${r.model_name}')">Remove</button>
+                    </div>
+                `).join('') || '<p>No routes configured</p>';
+            } catch (e) {
+                console.error('LiteLLM load failed:', e);
+            }
+        }
+        
+        async function loadEngines() {
+            try {
+                const data = await api.get('/api/engines');
+                const engines = data.engines || [];
+                
+                document.getElementById('engines-grid').innerHTML = engines.map(e => `
+                    <div class="card engine-card">
+                        <div class="status-indicator">
+                            <span class="badge badge-${e.status === 'running' ? 'success' : e.status === 'error' ? 'danger' : 'warning'}">${e.status}</span>
+                        </div>
+                        <div class="card-title" style="text-transform: capitalize; margin-bottom: 8px;">${e.engine}</div>
+                        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                            <div>Port: ${e.port}</div>
+                            <div>API: ${e.api_base}</div>
+                            ${e.container_id ? `<div>Container: ${e.container_id}</div>` : ''}
+                        </div>
+                        ${e.running_model ? `<div class="running-model">Model: ${e.running_model}</div>` : ''}
+                        <div class="btn-group" style="margin-top: 12px;">
+                            ${e.status === 'running' 
+                                ? `<button class="btn btn-sm btn-danger" onclick="controlEngine('${e.engine}', 'stop')">Stop</button>
+                                   <button class="btn btn-sm btn-secondary" onclick="controlEngine('${e.engine}', 'restart')">Restart</button>`
+                                : `<button class="btn btn-sm btn-primary" onclick="showServeModal('${e.engine}')">Start</button>`
+                            }
+                            <button class="btn btn-sm btn-secondary" onclick="viewEngineLogs('${e.engine}')">Logs</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Engines load failed:', e);
+            }
+        }
+        
+        async function loadInventory() {
+            try {
+                const search = document.getElementById('inventory-search')?.value;
+                const url = search ? `/api/inventory?search=${encodeURIComponent(search)}` : '/api/inventory';
+                const data = await api.get(url);
+                
+                const items = data.items || [];
+                
+                if (items.length === 0) {
+                    document.getElementById('inventory-content').innerHTML = `
+                        <div class="empty-state">
+                            <p>No models in inventory</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                document.getElementById('inventory-content').innerHTML = `
+                    <div style="margin-bottom: 12px; font-size: 13px; color: var(--text-muted);">
+                        ${data.total} models (${data.total_size_human}) | 
+                        Ollama: ${data.sources?.ollama || 0} | 
+                        HuggingFace: ${data.sources?.huggingface || 0} | 
+                        Local: ${data.sources?.local || 0}
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Source</th>
+                                <th>Size</th>
+                                <th>Format</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items.map(item => `
+                                <tr>
+                                    <td>
+                                        <strong>${item.name}</strong>
+                                        <div style="font-size: 11px; color: var(--text-muted);">${item.id}</div>
+                                    </td>
+                                    <td><span class="badge badge-${item.source === 'ollama' ? 'success' : item.source === 'huggingface' ? 'info' : 'warning'}">${item.source}</span></td>
+                                    <td>${item.size_human}</td>
+                                    <td>${item.format || '-'} ${item.quantization ? `(${item.quantization})` : ''}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger" onclick="deleteInventoryItem('${item.id}')">Delete</button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } catch (e) {
+                console.error('Inventory load failed:', e);
+            }
+        }
+        
+        async function searchHF() {
+            const query = document.getElementById('hf-search').value;
+            if (!query) return;
+            
+            try {
+                const data = await api.get(`/api/hf/search?query=${encodeURIComponent(query)}&limit=20`);
+                const models = data.models || [];
+                
+                document.getElementById('hf-results').innerHTML = `
+                    <div class="grid grid-3">
+                        ${models.map(m => `
+                            <div class="card">
+                                <div class="card-title" style="margin-bottom: 8px; font-size: 13px; word-break: break-all;">${m.model_id}</div>
+                                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                                    ${m.pipeline_tag ? `<span class="badge badge-info">${m.pipeline_tag}</span>` : ''}
+                                    <span style="margin-left: 8px;">↓ ${formatNumber(m.downloads)} | ♥ ${formatNumber(m.likes)}</span>
+                                </div>
+                                <button class="btn btn-sm btn-primary" onclick="downloadHFModel('${m.model_id}')">Download</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } catch (e) {
+                console.error('HF search failed:', e);
+            }
+        }
+        
+        async function loadEngineLogs() {
+            const engine = document.getElementById('log-engine').value;
+            try {
+                const data = await api.get(`/api/engines/${engine}/logs?tail=200`);
+                document.getElementById('log-content').textContent = data.logs || 'No logs available';
+            } catch (e) {
+                document.getElementById('log-content').textContent = 'Error loading logs';
+            }
+        }
+        
+        async function loadSettings() {
+            try {
+                const data = await api.get('/api/docker/status');
+                document.getElementById('docker-status').innerHTML = data.available 
+                    ? `<div>Version: ${data.info?.version || 'N/A'}</div>
+                       <div>Containers: ${data.info?.containers_running || 0} running</div>`
+                    : `<div style="color: var(--danger);">Docker not available</div>
+                       <div style="font-size: 11px; margin-top: 4px; color: var(--text-muted);">${data.error || ''}</div>`;
+            } catch (e) {
+                document.getElementById('docker-status').textContent = 'Error loading Docker status';
+            }
+        }
+        
+        // Actions
+        async function controlEngine(engine, action) {
+            try {
+                await api.post(`/api/engines/${engine}/control`, { action });
+                refreshAll();
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        async function pullModel() {
+            const model = document.getElementById('pull-model-name').value;
+            if (!model) return;
+            try {
+                await api.post('/api/ollama/pull', { model, tag: 'latest' });
+                closeModal('pull-modal');
+                setTimeout(loadOllamaModels, 2000);
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        async function deleteOllamaModel(name) {
+            if (!confirm(`Delete ${name}?`)) return;
+            try {
+                await api.delete(`/api/ollama/models/${encodeURIComponent(name)}`);
+                loadOllamaModels();
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        async function applyWildcard() {
+            try {
+                await api.post('/api/litellm/wildcard?engine=ollama');
+                alert('Wildcard applied! LiteLLM will restart.');
+                loadLiteLLM();
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        async function removeRoute(modelName) {
+            try {
+                await api.delete(`/api/litellm/routes/${encodeURIComponent(modelName)}`);
+                loadLiteLLM();
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        async function downloadHFModel(modelId) {
+            try {
+                await api.post('/api/hf/download', { model_id: modelId });
+                alert('Download started! Check inventory for progress.');
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        async function deleteInventoryItem(itemId) {
+            if (!confirm(`Delete ${itemId}?`)) return;
+            try {
+                await api.delete(`/api/inventory/${encodeURIComponent(itemId)}`);
+                loadInventory();
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        async function startEngineFromModal() {
+            const model = document.getElementById('serve-model').value;
+            const port = parseInt(document.getElementById('serve-port').value);
+            const tp = parseInt(document.getElementById('serve-tp').value);
+            
+            try {
+                await api.post(`/api/engines/${currentEngine}/control`, {
+                    action: 'start',
+                    model,
+                    port,
+                    tensor_parallel_size: tp
+                });
+                closeModal('serve-modal');
+                refreshAll();
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        let currentEngine = '';
+        
+        function showPullModal() {
+            document.getElementById('pull-modal').classList.add('active');
+        }
+        
+        function showServeModal(engine) {
+            currentEngine = engine;
+            document.getElementById('serve-modal').classList.add('active');
+        }
+        
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+        
+        function viewEngineLogs(engine) {
+            document.getElementById('log-engine').value = engine;
+            document.querySelector('[data-tab="logs"]').click();
+            loadEngineLogs();
+        }
+        
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num?.toString() || '0';
+        }
+        
+        // Close modals on outside click
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.classList.remove('active');
+            });
+        });
+    </script>
+</body>
+</html>
