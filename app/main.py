@@ -352,24 +352,71 @@ async def get_hf_model_files(model_id: str):
 
 
 @app.post("/api/hf/download")
-async def download_hf_model(request: HFDownloadRequest, background_tasks: BackgroundTasks):
-    """Download a model from HuggingFace"""
-    background_tasks.add_task(
-        hf_service.download_model,
+async def download_hf_model(request: HFDownloadRequest):
+    """Start a background download"""
+    task = hf_service.start_download(
         request.model_id,
         request.revision,
         request.local_dir
     )
-    return APIResponse(success=True, message=f"Started downloading {request.model_id}")
+    return {"message": "Download started", "model_id": request.model_id}
 
 
-@app.get("/api/hf/download/{model_id:path}/status")
+@app.get("/api/hf/downloads")
+async def list_downloads():
+    """List all downloads"""
+    downloads = hf_service.get_all_downloads()
+    return {"downloads": downloads, "total": len(downloads)}
+
+
+@app.get("/api/hf/downloads/active")
+async def list_active_downloads():
+    """List active downloads"""
+    downloads = hf_service.get_active_downloads()
+    return {"downloads": downloads, "total": len(downloads)}
+
+
+@app.get("/api/hf/downloads/{model_id:path}/status")
 async def get_hf_download_status(model_id: str):
     """Get HuggingFace download status"""
     status = hf_service.get_download_status(model_id)
     if status:
         return status
     raise HTTPException(status_code=404, detail="Download not found")
+
+
+@app.post("/api/hf/downloads/{model_id:path}/cancel")
+async def cancel_hf_download(model_id: str):
+    """Cancel an active download"""
+    success = hf_service.cancel_download(model_id)
+    if success:
+        return APIResponse(success=True, message=f"Cancelled download {model_id}")
+    raise HTTPException(status_code=404, detail="Download not found or not cancellable")
+
+
+@app.post("/api/hf/downloads/{model_id:path}/pause")
+async def pause_hf_download(model_id: str):
+    """Pause an active download"""
+    success = hf_service.pause_download(model_id)
+    if success:
+        return APIResponse(success=True, message=f"Paused download {model_id}")
+    raise HTTPException(status_code=404, detail="Download not found or not pausable")
+
+
+@app.post("/api/hf/downloads/{model_id:path}/resume")
+async def resume_hf_download(model_id: str):
+    """Resume a paused download"""
+    success = hf_service.resume_download(model_id)
+    if success:
+        return APIResponse(success=True, message=f"Resumed download {model_id}")
+    raise HTTPException(status_code=404, detail="Download not found or not resumable")
+
+
+@app.delete("/api/hf/downloads")
+async def clear_downloads():
+    """Clear completed/failed/cancelled downloads"""
+    count = hf_service.clear_completed()
+    return APIResponse(success=True, message=f"Cleared {count} downloads")
 
 
 @app.get("/api/hf/trending")

@@ -184,13 +184,18 @@ class HFDownloadRequest(BaseModel):
 class HFDownloadStatus(BaseModel):
     """HuggingFace download status"""
     model_id: str
-    status: str  # pending, downloading, completed, failed
+    status: str  # pending, downloading, completed, failed, cancelled, paused
     progress: Optional[float] = None
     speed: Optional[str] = None
     eta: Optional[str] = None
     error: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    files_total: int = 0
+    files_done: int = 0
+    current_file: str = ""
+    bytes_total: int = 0
+    bytes_done: int = 0
 
 
 # ============================================

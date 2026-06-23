@@ -208,6 +208,7 @@
             <button class="tab" data-tab="engines">Engines</button>
             <button class="tab" data-tab="inventory">Inventory</button>
             <button class="tab" data-tab="huggingface">HuggingFace</button>
+            <button class="tab" data-tab="downloads">Downloads</button>
             <button class="tab" data-tab="logs">Logs</button>
             <button class="tab" data-tab="settings">Settings</button>
         </div>
@@ -292,7 +293,18 @@
             <div id="hf-results"></div>
         </div>
         
-        <!-- Logs Panel -->
+        <!-- Downloads Panel -->
+        <div class="panel" id="panel-downloads">
+            <div class="section-header">
+                <h2 class="section-title">Active Downloads</h2>
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="clearCompletedDownloads()">Clear Completed</button>
+                    <button class="btn btn-secondary" onclick="loadDownloads()">Refresh</button>
+                </div>
+            </div>
+            <div id="downloads-content"></div>
+        </div>
+        
         <div class="panel" id="panel-logs">
             <div class="section-header">
                 <h2 class="section-title">Engine Logs</h2>
@@ -419,6 +431,7 @@
                 else if (tabName === 'litellm') loadLiteLLM();
                 else if (tabName === 'engines') loadEngines();
                 else if (tabName === 'inventory') loadInventory();
+                else if (tabName === 'downloads') loadDownloads();
                 else if (tabName === 'logs') loadEngineLogs();
                 else if (tabName === 'settings') loadSettings();
             });
@@ -429,6 +442,14 @@
         
         // Auto-refresh status every 30s
         setInterval(refreshAll, 30000);
+        
+        // Auto-refresh downloads more frequently
+        setInterval(() => {
+            const downloadsTab = document.querySelector('[data-tab="downloads"]');
+            if (downloadsTab && downloadsTab.classList.contains('active')) {
+                loadDownloads();
+            }
+        }, 3000);
         
         async function refreshAll() {
             await loadOverview();
@@ -704,6 +725,132 @@
             }
         }
         
+        // Downloads functions
+        async function loadDownloads() {
+            try {
+                const data = await api.get('/api/hf/downloads');
+                const downloads = data.downloads || [];
+                
+                if (downloads.length === 0) {
+                    document.getElementById('downloads-content').innerHTML = `
+                        <div class="empty-state">
+                            <p>No active downloads</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                document.getElementById('downloads-content').innerHTML = downloads.map(d => {
+                    const statusBadge = getStatusBadge(d.status);
+                    const progressWidth = d.progress || 0;
+                    const bytesInfo = d.bytes_total > 0 
+                        ? `${formatBytes(d.bytes_done)} / ${formatBytes(d.bytes_total)}`
+                        : '';
+                    const etaInfo = d.eta ? ` | ETA: ${d.eta}` : '';
+                    const speedInfo = d.speed ? ` | ${d.speed}` : '';
+                    
+                    return `
+                        <div class="card" style="margin-bottom: 12px;">
+                            <div class="card-header">
+                                <div>
+                                    <div class="card-title" style="word-break: break-all;">${d.model_id}</div>
+                                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                                        ${statusBadge} ${bytesInfo}${speedInfo}${etaInfo}
+                                    </div>
+                                </div>
+                                <div class="btn-group">
+                                    ${d.status === 'downloading' ? `
+                                        <button class="btn btn-sm btn-secondary" onclick="pauseDownload('${d.model_id}')">Pause</button>
+                                        <button class="btn btn-sm btn-danger" onclick="cancelDownload('${d.model_id}')">Cancel</button>
+                                    ` : ''}
+                                    ${d.status === 'paused' ? `
+                                        <button class="btn btn-sm btn-primary" onclick="resumeDownload('${d.model_id}')">Resume</button>
+                                        <button class="btn btn-sm btn-danger" onclick="cancelDownload('${d.model_id}')">Cancel</button>
+                                    ` : ''}
+                                    ${d.status === 'completed' ? `
+                                        <span class="badge badge-success">Done</span>
+                                    ` : ''}
+                                    ${d.status === 'failed' ? `
+                                        <span class="badge badge-danger" title="${d.error || ''}">Failed</span>
+                                    ` : ''}
+                                    ${d.status === 'cancelled' ? `
+                                        <span class="badge badge-warning">Cancelled</span>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            <div class="progress" style="margin-top: 8px;">
+                                <div class="progress-fill" style="width: ${progressWidth}%; background: ${d.status === 'failed' ? 'var(--danger)' : d.status === 'cancelled' ? 'var(--warning)' : 'var(--primary)'};"></div>
+                            </div>
+                            ${d.current_file ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">${d.current_file}</div>` : ''}
+                            ${d.status === 'completed' ? `<div style="font-size: 11px; color: var(--success); margin-top: 4px;">Completed ${d.completed_at ? new Date(d.completed_at).toLocaleString() : ''}</div>` : ''}
+                            ${d.status === 'failed' && d.error ? `<div style="font-size: 11px; color: var(--danger); margin-top: 4px;">${d.error}</div>` : ''}
+                        </div>
+                    `;
+                }).join('');
+                
+            } catch (e) {
+                console.error('Failed to load downloads:', e);
+                document.getElementById('downloads-content').innerHTML = `<div class="empty-state">Error loading downloads</div>`;
+            }
+        }
+        
+        function getStatusBadge(status) {
+            const badges = {
+                'downloading': '<span class="badge badge-info">Downloading</span>',
+                'pending': '<span class="badge badge-warning">Pending</span>',
+                'completed': '<span class="badge badge-success">Completed</span>',
+                'failed': '<span class="badge badge-danger">Failed</span>',
+                'cancelled': '<span class="badge badge-warning">Cancelled</span>',
+                'paused': '<span class="badge badge-warning">Paused</span>'
+            };
+            return badges[status] || `<span class="badge">${status}</span>`;
+        }
+        
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+        
+        async function cancelDownload(modelId) {
+            if (!confirm(`Cancel download of ${modelId}?`)) return;
+            try {
+                await api.post(`/api/hf/downloads/${encodeURIComponent(modelId)}/cancel`);
+                loadDownloads();
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        async function pauseDownload(modelId) {
+            try {
+                await api.post(`/api/hf/downloads/${encodeURIComponent(modelId)}/pause`);
+                loadDownloads();
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        async function resumeDownload(modelId) {
+            try {
+                await api.post(`/api/hf/downloads/${encodeURIComponent(modelId)}/resume`);
+                loadDownloads();
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
+        async function clearCompletedDownloads() {
+            try {
+                await api.delete('/api/hf/downloads');
+                loadDownloads();
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            }
+        }
+        
         async function loadEngineLogs() {
             const engine = document.getElementById('log-engine').value;
             try {
@@ -781,7 +928,8 @@
         async function downloadHFModel(modelId) {
             try {
                 await api.post('/api/hf/download', { model_id: modelId });
-                alert('Download started! Check inventory for progress.');
+                // Switch to downloads tab
+                document.querySelector('[data-tab="downloads"]').click();
             } catch (e) {
                 alert(`Error: ${e.message}`);
             }
