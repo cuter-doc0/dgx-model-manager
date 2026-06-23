@@ -237,11 +237,15 @@ class EngineManager:
             if not docker_manager.is_available():
                 return None
             
-            # Look for networks with 'model-network' in the name
-            networks = docker_manager.client.networks.list()
-            for net in networks:
-                if 'model-network' in net.name:
-                    return net.name
+            # Use Docker CLI to list networks
+            result = docker_manager._run([
+                "network", "ls", "--format", "{{.Name}}"
+            ])
+            
+            if result.returncode == 0:
+                for net_name in result.stdout.strip().split("\n"):
+                    if 'model-network' in net_name:
+                        return net_name
             
             return None
         except Exception as e:
