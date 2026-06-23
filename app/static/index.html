@@ -378,8 +378,14 @@
                 <button class="close-btn" onclick="closeModal('serve-modal')">&times;</button>
             </div>
             <div class="form-group">
-                <label>Model</label>
-                <input type="text" id="serve-model" placeholder="Model path or name">
+                <label>Select from Inventory</label>
+                <select id="serve-model-select" onchange="onInventorySelect()" style="width: 100%;">
+                    <option value="">-- Choose a model --</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Or enter model path / name</label>
+                <input type="text" id="serve-model" placeholder="e.g., /models/my-model, meta-llama/Llama-3.1-8B">
             </div>
             <div class="form-group">
                 <label>Port</label>
@@ -946,9 +952,16 @@
         }
         
         async function startEngineFromModal() {
-            const model = document.getElementById('serve-model').value;
+            const modelSelect = document.getElementById('serve-model-select').value;
+            const modelManual = document.getElementById('serve-model').value;
+            const model = modelSelect || modelManual;
             const port = parseInt(document.getElementById('serve-port').value);
             const tp = parseInt(document.getElementById('serve-tp').value);
+            
+            if (!model) {
+                alert('Please select or enter a model');
+                return;
+            }
             
             try {
                 await api.post(`/api/engines/${currentEngine}/control`, {
@@ -970,9 +983,51 @@
             document.getElementById('pull-modal').classList.add('active');
         }
         
-        function showServeModal(engine) {
+        async function showServeModal(engine) {
             currentEngine = engine;
+            
+            // Set default ports based on engine
+            const defaultPorts = { sglang: 30000, vllm: 8000, llamacpp: 8080, ollama: 11434, localai: 9090, comfyui: 8188 };
+            document.getElementById('serve-port').value = defaultPorts[engine] || 30000;
+            
+            // Load inventory for model selection
+            try {
+                const data = await api.get('/api/inventory');
+                const select = document.getElementById('serve-model-select');
+                select.innerHTML = '<option value="">-- Choose a model --</option>';
+                
+                const items = data.items || [];
+                if (items.length > 0) {
+                    const group = document.createElement('optgroup');
+                    group.label = 'Local Models';
+                    
+                    items.forEach(item => {
+                        const opt = document.createElement('option');
+                        opt.value = item.path || item.name;
+                        const sizeInfo = item.size_human ? ` (${item.size_human})` : '';
+                        const quantInfo = item.quantization ? ` [${item.quantization}]` : '';
+                        opt.textContent = `${item.name}${quantInfo}${sizeInfo}`;
+                        group.appendChild(opt);
+                    });
+                    
+                    select.appendChild(group);
+                }
+            } catch (e) {
+                console.error('Failed to load inventory:', e);
+            }
+            
+            // Clear manual input
+            document.getElementById('serve-model').value = '';
+            
             document.getElementById('serve-modal').classList.add('active');
+        }
+        
+        function onInventorySelect() {
+            const select = document.getElementById('serve-model-select');
+            const input = document.getElementById('serve-model');
+            if (select.value) {
+                input.value = select.value;
+            }
         }
         
         function closeModal(id) {
