@@ -36,6 +36,9 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# Ensure Docker Python client works with Unix socket
+ENV DOCKER_HOST=unix:///var/run/docker.sock
+
 WORKDIR /app
 
 COPY app/ ./app/

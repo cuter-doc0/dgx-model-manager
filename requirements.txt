@@ -12,6 +12,8 @@ huggingface-hub==0.27.1
 
 # Docker
 docker==7.0.0
+requests>=2.31.0
+urllib3>=2.0.0
 
 # System monitoring
 psutil==6.1.1
