@@ -23,21 +23,30 @@ class DockerManager:
         """Try to connect to Docker daemon"""
         try:
             # Check if socket exists
-            socket_path = os.environ.get("DOCKER_HOST", "unix:///var/run/docker.sock")
+            socket_path = "/var/run/docker.sock"
             logger.info(f"Attempting Docker connection via: {socket_path}")
             
-            self.client = docker.from_env()
+            # Check if socket file exists
+            if not os.path.exists(socket_path):
+                self._error = f"Docker socket not found at {socket_path}"
+                logger.warning(self._error)
+                self.client = None
+                return
+            
+            # Check socket permissions
+            import stat
+            socket_stat = os.stat(socket_path)
+            logger.info(f"Socket permissions: {oct(socket_stat.st_mode)}")
+            
+            # Try to connect with explicit socket path
+            self.client = docker.DockerClient(base_url="unix:///var/run/docker.sock")
             
             # Test the connection
             self.client.ping()
             logger.info("Docker client connected successfully")
             
-        except FileNotFoundError as e:
-            self._error = f"Docker socket not found: {e}"
-            logger.warning(self._error)
-            self.client = None
         except PermissionError as e:
-            self._error = f"Permission denied accessing Docker: {e}"
+            self._error = f"Permission denied accessing Docker socket: {e}"
             logger.warning(self._error)
             self.client = None
         except docker.errors.DockerException as e:

@@ -50,6 +50,9 @@ RUN mkdir -p /models
 # Add app user to docker group for socket access
 RUN groupadd -f docker && usermod -aG docker root
 
+# Ensure Docker socket is accessible
+RUN chmod 666 /var/run/docker.sock 2>/dev/null || true
+
 EXPOSE 4600
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

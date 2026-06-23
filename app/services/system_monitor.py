@@ -131,14 +131,31 @@ class SystemMonitor:
                 
                 parts = [p.strip() for p in line.split(",")]
                 if len(parts) >= 6:
-                    gpus.append(GPUInfo(
-                        index=int(parts[0]),
-                        name=parts[1],
-                        memory_total=int(parts[2]),
-                        memory_used=int(parts[3]),
-                        memory_free=int(parts[4]),
-                        utilization=float(parts[5])
-                    ))
+                    try:
+                        # Handle [N/A] or N/A values gracefully
+                        def parse_int(val, default=0):
+                            val = val.strip().strip('[]')
+                            if val in ['N/A', '[N/A]', '', 'Not Supported']:
+                                return default
+                            return int(val)
+                        
+                        def parse_float(val, default=0.0):
+                            val = val.strip().strip('[]')
+                            if val in ['N/A', '[N/A]', '', 'Not Supported']:
+                                return default
+                            return float(val)
+                        
+                        gpus.append(GPUInfo(
+                            index=parse_int(parts[0]),
+                            name=parts[1],
+                            memory_total=parse_int(parts[2]),
+                            memory_used=parse_int(parts[3]),
+                            memory_free=parse_int(parts[4]),
+                            utilization=parse_float(parts[5])
+                        ))
+                    except (ValueError, IndexError) as e:
+                        logger.warning(f"Failed to parse GPU info line: {line} - {e}")
+                        continue
             
             return gpus
             
