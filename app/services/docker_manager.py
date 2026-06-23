@@ -120,14 +120,14 @@ class DockerManager:
         """Get the last connection error"""
         return self._error
     
-    def _run(self, args: List[str], input_data: Optional[str] = None) -> subprocess.CompletedProcess:
+    def _run(self, args: List[str], input_data: Optional[str] = None, timeout: int = 60) -> subprocess.CompletedProcess:
         """Run Docker CLI command"""
         return subprocess.run(
             [self._docker_cmd] + args,
             capture_output=True,
             text=True,
             input=input_data,
-            timeout=60
+            timeout=timeout
         )
     
     def get_container(self, name: str) -> Optional[Container]:
@@ -292,36 +292,37 @@ class DockerManager:
         command: Optional[str] = None,
         gpu: bool = True,
         network: Optional[str] = None,
-        detach: bool = True
+        detach: bool = True,
+        timeout: int = 600
     ) -> bool:
         """Run a new container using Docker CLI"""
         try:
             args = ["run"]
-            
+
             if detach:
                 args.append("-d")
-            
+
             args.extend(["--name", name])
-            
+
             # Remove existing container if present
             self.remove_container(name, force=True)
-            
+
             # Add restart policy
             args.extend(["--restart", "unless-stopped"])
-            
+
             # GPU support
             if gpu:
                 args.extend(["--gpus", "all"])
-            
+
             # Network
             if network:
                 args.extend(["--network", network])
-            
+
             # Ports
             if ports:
                 for container_port, host_port in ports.items():
                     args.extend(["-p", f"{host_port}:{container_port}"])
-            
+
             # Volumes
             if volumes:
                 for host_path, mount_info in volumes.items():
@@ -332,24 +333,24 @@ class DockerManager:
                         container_path = mount_info
                         mode = "rw"
                     args.extend(["-v", f"{host_path}:{container_path}:{mode}"])
-            
+
             # Environment
             if environment:
                 for key, value in environment.items():
                     args.extend(["-e", f"{key}={value}"])
-            
+
             args.append(image)
-            
+
             if command:
                 args.extend(command.split())
-            
-            result = self._run(args)
+
+            result = self._run(args, timeout=timeout)
             if result.returncode == 0:
                 logger.info(f"Started container {name}")
                 return True
             logger.warning(f"Failed to start {name}: {result.stderr.strip()}")
             return False
-            
+
         except Exception as e:
             logger.error(f"Error running container {name}: {e}")
             return False

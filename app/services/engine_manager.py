@@ -173,12 +173,15 @@ class EngineManager:
         
         # Build volume mappings
         hf_cache = self.config.paths.get("hf_cache", "~/.cache/huggingface")
-        models_path = self.config.paths.get("models", "./models")
+        models_path = self.config.paths.get("models", "/models")
         
         volumes = {
             hf_cache: {"bind": "/root/.cache/huggingface", "mode": "rw"},
-            models_path: {"bind": "/models", "mode": "rw"},
         }
+        
+        # Add model-specific volumes
+        if engine == EngineType.LLAMACPP:
+            volumes[models_path] = {"bind": "/models", "mode": "rw"}
         
         # Build environment
         environment = {
