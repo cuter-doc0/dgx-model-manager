@@ -224,8 +224,9 @@ class EngineManager:
         elif engine == EngineType.VLLM:
             tp_size = kwargs.get("tensor_parallel_size", 1)
             gpu_mem = kwargs.get("gpu_memory_utilization", 0.9)
-            # Use positional argument (vllm serve <model>) which works for both HF IDs and local paths
-            return f"serve {model} --host 0.0.0.0 --port 8000 --tensor-parallel-size {tp_size} --gpu-memory-utilization {gpu_mem}"
+            # vLLM Docker image entrypoint is already "vllm serve"
+            # Just pass the model as positional argument with options
+            return f"{model} --host 0.0.0.0 --port 8000 --tensor-parallel-size {tp_size} --gpu-memory-utilization {gpu_mem}"
         
         elif engine == EngineType.LLAMACPP:
             return f"--model {model} --host 0.0.0.0 --port 8080"
