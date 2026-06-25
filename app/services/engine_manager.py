@@ -179,8 +179,8 @@ class EngineManager:
             hf_cache: {"bind": "/root/.cache/huggingface", "mode": "rw"},
         }
         
-        # Add model-specific volumes
-        if engine == EngineType.LLAMACPP:
+        # Add /models mount for engines that load local models
+        if engine in [EngineType.VLLM, EngineType.SGLANG, EngineType.LLAMACPP, EngineType.LOCALAI, EngineType.OLLAMA]:
             volumes[models_path] = {"bind": "/models", "mode": "rw"}
         
         # Build environment
@@ -224,7 +224,8 @@ class EngineManager:
         elif engine == EngineType.VLLM:
             tp_size = kwargs.get("tensor_parallel_size", 1)
             gpu_mem = kwargs.get("gpu_memory_utilization", 0.9)
-            return f"--model {model} --host 0.0.0.0 --port 8000 --tensor-parallel-size {tp_size} --gpu-memory-utilization {gpu_mem}"
+            # Use positional argument (vllm serve <model>) which works for both HF IDs and local paths
+            return f"serve {model} --host 0.0.0.0 --port 8000 --tensor-parallel-size {tp_size} --gpu-memory-utilization {gpu_mem}"
         
         elif engine == EngineType.LLAMACPP:
             return f"--model {model} --host 0.0.0.0 --port 8080"
