@@ -229,6 +229,7 @@ class EngineManager:
     def start_engine(self, engine: EngineType, model: Optional[str] = None, 
                      port: Optional[int] = None, **kwargs) -> bool:
         """Start an engine"""
+        logger.info(f"=== start_engine called: engine={engine.value}, model={model}, kwargs={kwargs} ===")
         container_name = CONTAINER_NAMES.get(engine)
         image = ENGINE_IMAGES.get(engine)
         default_port = DEFAULT_PORTS.get(engine)
@@ -238,13 +239,14 @@ class EngineManager:
             return False
         
         if not docker_manager.is_available():
-            logger.error("Docker not available")
+            logger.error(f"Docker not available: {docker_manager.get_error()}")
             return False
         
         # Validate model path if provided
         resolved_model = model
         if model:
             is_valid, error_msg, resolved_model = self._validate_model_path(model, engine)
+            logger.info(f"Model validation: is_valid={is_valid}, resolved_model={resolved_model}, error={error_msg}")
             if not is_valid:
                 logger.error(f"Model validation failed: {error_msg}")
                 return False
@@ -278,11 +280,17 @@ class EngineManager:
         
         # Build command based on engine and model
         command = self._build_engine_command(engine, resolved_model, **kwargs)
+        logger.info(f"Built command: {command}")
+        
+        if not command:
+            logger.error(f"No command built for engine {engine.value} with model {resolved_model}")
+            return False
         
         # Detect Docker network (look for compose project network)
         network = self._detect_docker_network()
         
         # Run container
+        logger.info(f"Starting container: image={image}, name={container_name}, command={command}")
         container = docker_manager.run_container(
             image=image,
             name=container_name,
@@ -298,6 +306,7 @@ class EngineManager:
             logger.info(f"Started engine {engine.value} with container {container_name}")
             return True
         
+        logger.error(f"Failed to start container {container_name}")
         return False
     
     def _build_engine_command(self, engine: EngineType, model: Optional[str] = None, **kwargs) -> Optional[str]:

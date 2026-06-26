@@ -348,7 +348,7 @@ class DockerManager:
             if result.returncode == 0:
                 logger.info(f"Started container {name}")
                 return True
-            logger.warning(f"Failed to start {name}: {result.stderr.strip()}")
+            logger.warning(f"Failed to start {name}: returncode={result.returncode}, stderr={result.stderr.strip()}, stdout={result.stdout.strip()}")
             return False
 
         except Exception as e:
