@@ -146,6 +146,52 @@ class EngineManager:
                 states.append(self.get_engine_state(engine))
         return states
     
+    def _validate_model_path(self, model_path: str, engine: EngineType) -> tuple[bool, str, str]:
+        """Validate model path before starting engine
+        
+        Returns:
+            Tuple of (is_valid, error_message, resolved_path)
+        """
+        if not model_path:
+            return True, "", model_path
+        
+        # Check if path exists
+        if not os.path.exists(model_path):
+            return False, f"Model path does not exist: {model_path}", model_path
+        
+        # Check if it's a directory (for local models)
+        if os.path.isdir(model_path):
+            # Check for config.json (required by vLLM)
+            config_path = os.path.join(model_path, "config.json")
+            if not os.path.exists(config_path):
+                # Check if this is a HuggingFace cache directory (models-- prefix)
+                # If so, we need to find the snapshot directory
+                if "models--" in model_path:
+                    # Look for snapshots directory
+                    snapshots_dir = os.path.join(model_path, "snapshots")
+                    if os.path.exists(snapshots_dir):
+                        # Find the latest snapshot
+                        snapshots = [d for d in os.listdir(snapshots_dir) if os.path.isdir(os.path.join(snapshots_dir, d))]
+                        if snapshots:
+                            # Use the first snapshot (usually the latest)
+                            snapshot_path = os.path.join(snapshots_dir, snapshots[0])
+                            if os.path.exists(os.path.join(snapshot_path, "config.json")):
+                                # Update the model path to point to the snapshot
+                                logger.info(f"Found HuggingFace cache directory, using snapshot: {snapshot_path}")
+                                return True, "", snapshot_path
+                
+                return False, f"Model directory does not contain config.json: {model_path}", model_path
+            
+            # Check for model weight files
+            has_weights = any(
+                f.endswith(('.safetensors', '.bin', '.gguf'))
+                for f in os.listdir(model_path)
+            )
+            if not has_weights:
+                return False, f"Model directory does not contain weight files: {model_path}", model_path
+        
+        return True, "", model_path
+    
     def start_engine(self, engine: EngineType, model: Optional[str] = None, 
                      port: Optional[int] = None, **kwargs) -> bool:
         """Start an engine"""
@@ -160,6 +206,14 @@ class EngineManager:
         if not docker_manager.is_available():
             logger.error("Docker not available")
             return False
+        
+        # Validate model path if provided
+        resolved_model = model
+        if model:
+            is_valid, error_msg, resolved_model = self._validate_model_path(model, engine)
+            if not is_valid:
+                logger.error(f"Model validation failed: {error_msg}")
+                return False
         
         # Check if already running
         state = self.get_engine_state(engine)
@@ -189,7 +243,7 @@ class EngineManager:
         }
         
         # Build command based on engine and model
-        command = self._build_engine_command(engine, model, **kwargs)
+        command = self._build_engine_command(engine, resolved_model, **kwargs)
         
         # Detect Docker network (look for compose project network)
         network = self._detect_docker_network()
@@ -217,6 +271,15 @@ class EngineManager:
         if not model:
             return None
         
+        # Check if model path exists locally
+        model_exists_locally = os.path.isdir(model) or os.path.isfile(model)
+        
+        # For local models, check if config.json exists (required by vLLM)
+        if model_exists_locally:
+            config_path = os.path.join(model, "config.json")
+            if not os.path.exists(config_path):
+                logger.warning(f"Model directory {model} does not contain config.json - vLLM may fail to load")
+        
         if engine == EngineType.SGLANG:
             tp_size = kwargs.get("tensor_parallel_size", 1)
             return f"python3 -m sglang.launch_server --model-path {model} --host 0.0.0.0 --port 30000 --tensor-parallel-size {tp_size}"
@@ -224,9 +287,25 @@ class EngineManager:
         elif engine == EngineType.VLLM:
             tp_size = kwargs.get("tensor_parallel_size", 1)
             gpu_mem = kwargs.get("gpu_memory_utilization", 0.9)
+            
+            # Build vLLM command with optional flags
+            cmd_parts = [model]
+            
+            # Add quantization flag for NVFP4 models
+            if "nvfp4" in model.lower() or "NVFP4" in model:
+                cmd_parts.append("--quantization modelopt_fp4")
+            
+            # Add common options
+            cmd_parts.extend([
+                "--host 0.0.0.0",
+                "--port 8000",
+                f"--tensor-parallel-size {tp_size}",
+                f"--gpu-memory-utilization {gpu_mem}"
+            ])
+            
             # vLLM Docker image entrypoint is already "vllm serve"
             # Just pass the model as positional argument with options
-            return f"{model} --host 0.0.0.0 --port 8000 --tensor-parallel-size {tp_size} --gpu-memory-utilization {gpu_mem}"
+            return " ".join(cmd_parts)
         
         elif engine == EngineType.LLAMACPP:
             return f"--model {model} --host 0.0.0.0 --port 8080"
