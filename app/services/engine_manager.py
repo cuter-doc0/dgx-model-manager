@@ -305,12 +305,19 @@ class EngineManager:
         if not model:
             return None
         
+        # Convert local /models/org_name path to HF model ID (org/name)
+        if model.startswith("/models/") and "_" in model.split("/models/")[1]:
+            hf_id = self._extract_hf_model_id(model)
+            if hf_id:
+                logger.info(f"Converted model path to HF model ID: {model} -> {hf_id}")
+                model = hf_id
+        
         # Check if model path exists locally
         model_exists_locally = os.path.isdir(model) or os.path.isfile(model)
         
         if engine == EngineType.SGLANG:
             tp_size = kwargs.get("tensor_parallel_size", 1)
-            return f"python3 -m sglang.launch_server --model-path {model} --host 0.0.0.0 --port 30000 --tensor-parallel-size {tp_size}"
+            return f"python3 -m sglang.launch_server --model-path {model} --host 0.0.0.0 --port 30000 --tensor-parallel-size {tp_size} --trust-remote-code"
         
         elif engine == EngineType.VLLM:
             tp_size = kwargs.get("tensor_parallel_size", 1)
