@@ -15,7 +15,6 @@ from app.models import (
     EngineType, EngineStatus, EngineState, EngineProfile, EngineControl
 )
 from app.services.docker_manager import docker_manager
-from app.services.hf_service import hf_service
 from app.config import get_config, EngineConfig
 
 logger = logging.getLogger(__name__)
@@ -151,28 +150,56 @@ class EngineManager:
     def _validate_model_path(self, model_path: str, engine: EngineType) -> tuple[bool, str, str]:
         """Validate model path before starting engine
         
-        If the path doesn't exist locally, tries to resolve it as a HuggingFace
-        model ID and download it automatically.
-        
         Returns:
             Tuple of (is_valid, error_message, resolved_path)
         """
         if not model_path:
             return True, "", model_path
         
-        # Check if path exists
+        # Path exists locally - validate it
         if os.path.exists(model_path):
-            # Path exists locally - validate it
-            return self._validate_local_path(model_path, engine)
-        
-        # Path doesn't exist - try auto-download from HuggingFace
-        return self._try_auto_download(model_path, engine)
-    
-    def _validate_local_path(self, model_path: str, engine: EngineType) -> tuple[bool, str, str]:
-        """Validate a local model path exists and has required files"""
-        if not os.path.isdir(model_path):
+            if os.path.isdir(model_path):
+                return self._validate_local_directory(model_path)
             return True, "", model_path  # Single file (e.g., GGUF)
         
+        # Path doesn't exist locally - try to resolve it as a HuggingFace model ID
+        model_id = self._extract_hf_model_id(model_path)
+        if model_id:
+            # Let vLLM auto-download from HuggingFace
+            return True, "", model_id
+        
+        return False, f"Model path does not exist: {model_path}. Download it from the HuggingFace tab first.", model_path
+    
+    def _extract_hf_model_id(self, model_path: str) -> Optional[str]:
+        """Extract a HuggingFace model ID from a local path or direct ID
+        
+        Converts:
+          /models/lyf_Qwen3.6-35B-A3B -> lyf/Qwen3.6-35B-A3B  (path under /models)
+          lyf/Qwen3.6-35B-A3B        -> lyf/Qwen3.6-35B-A3B  (already an HF ID)
+          /root/.cache/.../models--lyf--Qwen3.6-35B-A3B -> None (HF cache, handled by snapshot resolution)
+        """
+        models_dir = self.config.paths.get("models", "/models")
+        
+        if model_path.startswith(models_dir + "/"):
+            rel_path = model_path[len(models_dir) + 1:]
+            first_underscore = rel_path.find("_")
+            if first_underscore > 0:
+                namespace = rel_path[:first_underscore]
+                name = rel_path[first_underscore + 1:]
+                # Verify it looks like a valid HF model ID
+                if namespace and name:
+                    return f"{namespace}/{name}"
+        
+        # Direct HuggingFace model ID (contains / but doesn't start with /)
+        if "/" in model_path and not model_path.startswith("/"):
+            parts = model_path.split("/")
+            if len(parts) == 2 and all(part.strip() for part in parts):
+                return model_path
+        
+        return None
+    
+    def _validate_local_directory(self, model_path: str) -> tuple[bool, str, str]:
+        """Validate a local model directory has required files"""
         # Check for config.json (required by vLLM/SGLang)
         config_path = os.path.join(model_path, "config.json")
         if not os.path.exists(config_path):
@@ -185,8 +212,7 @@ class EngineManager:
                         snapshot_path = os.path.join(snapshots_dir, snapshots[0])
                         if os.path.exists(os.path.join(snapshot_path, "config.json")):
                             logger.info(f"Found HuggingFace cache directory, using snapshot: {snapshot_path}")
-                            is_valid, msg, _ = self._validate_local_path(snapshot_path, engine)
-                            return is_valid, msg, snapshot_path
+                            return self._validate_local_directory(snapshot_path)
             
             return False, f"Model directory does not contain config.json: {model_path}", model_path
         
@@ -199,86 +225,6 @@ class EngineManager:
             return False, f"Model directory does not contain weight files: {model_path}", model_path
         
         return True, "", model_path
-    
-    def _try_auto_download(self, model_path: str, engine: EngineType) -> tuple[bool, str, str]:
-        """Try to auto-download a model from HuggingFace when the local path doesn't exist
-        
-        The path format is expected to be like:
-          /models/lyf_Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-NVFP4
-        which maps to HuggingFace model ID:
-          lyf/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-NVFP4
-        """
-        # Extract potential HF model ID from path
-        models_dir = self.config.paths.get("models", "/models")
-        hf_cache = self.config.paths.get("hf_cache", "/root/.cache/huggingface")
-        
-        model_id = None
-        local_dir = None
-        
-        if model_path.startswith(models_dir + "/"):
-            # Path like /models/lyf_... -> model ID lyf/...
-            rel_path = model_path[len(models_dir) + 1:]
-            # Replace first _ with / to get namespace/model_name
-            first_underscore = rel_path.find("_")
-            if first_underscore > 0:
-                namespace = rel_path[:first_underscore]
-                name = rel_path[first_underscore + 1:]
-                model_id = f"{namespace}/{name}"
-                local_dir = model_path
-        elif model_path.startswith(hf_cache + "/"):
-            # Path in HF cache like /root/.cache/huggingface/hub/models--lyf--Qwen3.6-35B...
-            pass  # HF cache paths are handled by snapshot resolution
-        
-        # Also check if the path itself looks like an HF model ID (contains /)
-        if not model_id and "/" in model_path and not model_path.startswith("/"):
-            model_id = model_path
-            local_dir = f"{models_dir}/{model_id.replace('/', '_')}"
-        
-        if model_id and local_dir:
-            logger.info(f"Model not found at {model_path}, attempting auto-download from HuggingFace: {model_id}")
-            
-            try:
-                # Check if model exists on HuggingFace
-                model_info = hf_service.get_model_info(model_id)
-                if model_info:
-                    logger.info(f"Found model {model_id} on HuggingFace, downloading to {local_dir}")
-                    task = hf_service.start_download(model_id, local_dir=local_dir)
-                    
-                    if task.status == "downloading":
-                        # Wait for download to complete (with timeout)
-                        import time
-                        timeout = 600  # 10 minutes max
-                        start = time.time()
-                        while task.status in ("pending", "downloading"):
-                            if time.time() - start > timeout:
-                                return False, f"Download timed out for {model_id}", model_path
-                            time.sleep(2)
-                        
-                        if task.status == "completed":
-                            logger.info(f"Successfully downloaded {model_id} to {local_dir}")
-                            is_valid, msg, resolved = self._validate_local_path(local_dir, engine)
-                            return is_valid, msg, local_dir
-                        elif task.status == "failed":
-                            return False, f"Failed to download {model_id}: {task.error}", model_path
-                    elif task.status == "completed":
-                        # Already downloaded
-                        logger.info(f"Model {model_id} was already downloaded to {local_dir}")
-                        is_valid, msg, resolved = self._validate_local_path(local_dir, engine)
-                        return is_valid, msg, local_dir
-                else:
-                    return False, f"Model not found locally or on HuggingFace: {model_id}", model_path
-            except Exception as e:
-                logger.error(f"Auto-download failed for {model_id}: {e}")
-                return False, f"Failed to download model {model_id}: {e}. Please download it manually from the HuggingFace tab.", model_path
-        
-        # If path doesn't start with /models/, treat it as a HuggingFace model ID
-        if not model_id and not model_path.startswith("/"):
-            model_id = model_path
-            local_dir = f"{models_dir}/{model_id.replace('/', '_')}"
-            if local_dir != model_path:
-                return self._try_auto_download(local_dir, engine)
-        
-        return False, f"Model path does not exist: {model_path}. Please download the model first from the HuggingFace tab.", model_path
     
     def start_engine(self, engine: EngineType, model: Optional[str] = None, 
                      port: Optional[int] = None, **kwargs) -> bool:
