@@ -55,10 +55,6 @@ Your Apps (Open WebUI, agents, scripts, any OpenAI-compatible client)
 ```bash
 cd dgx-model-manager
 
-# Copy and edit configuration
-cp .env.example .env
-cp config/config.example.json config/config.json
-
 # Build and start the stack
 docker-compose up -d --build
 
@@ -66,17 +62,15 @@ docker-compose up -d --build
 open http://localhost:4600
 ```
 
+> **Note:** `.env` and `config/config.json` come pre-configured with defaults. No manual setup needed. If you're using dockhand's git sync, set the additional env file to `.env` and override any variables via dockhand's env declarations.
+
 The `config/litellm_config.yaml` is the default LiteLLM routing config — it ships pre-configured with Ollama wildcard routing and doesn't need any changes for initial setup. You can manage routes via the web UI (LiteLLM tab) or edit the file directly for advanced configurations.
 
 ## Configuration
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` and edit as needed:
-
-```bash
-cp .env.example .env
-```
+`.env` comes pre-configured with defaults. Override any variable via dockhand env declarations or edit `.env` directly:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -92,11 +86,7 @@ cp .env.example .env
 
 ### Application Config
 
-Edit `config/config.json` (copy from `config/config.example.json`):
-
-```bash
-cp config/config.example.json config/config.json
-```
+`config/config.json` comes pre-configured with defaults. Edit directly for customizations:
 
 **Important:** The service URLs in `config.json` use Docker internal DNS names (e.g., `http://dgx-ollama:11434`). These resolve automatically within the Docker network — **do not change them** unless you're running services outside Docker.
 

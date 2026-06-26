@@ -1,0 +1,69 @@
+{
+  "app": {
+    "host": "0.0.0.0",
+    "port": 4600,
+    "name": "DGX Spark Model Manager"
+  },
+  "services": {
+    "ollama_base": "http://dgx-ollama:11434",
+    "litellm_base": "http://dgx-litellm:4000",
+    "sglang_base": "http://dgx-sglang:30000",
+    "vllm_base": "http://dgx-vllm:8000",
+    "llamacpp_base": "http://dgx-llamacpp:8080",
+    "localai_base": "http://dgx-localai:9090",
+    "comfyui_base": "http://dgx-comfyui:8188"
+  },
+  "ports": {
+    "manager": 4600,
+    "ollama": 4610,
+    "litellm": 4601,
+    "sglang": 4620,
+    "vllm": 4630,
+    "llamacpp": 4640,
+    "localai": 4650,
+    "comfyui": 4660
+  },
+  "paths": {
+    "models": "/models",
+    "hf_cache": "/root/.cache/huggingface",
+    "litellm_config": "/app/config/litellm_config.yaml"
+  },
+  "engines": {
+    "ollama": {
+      "enabled": true,
+      "auto_start": true
+    },
+    "sglang": {
+      "enabled": true,
+      "auto_start": false
+    },
+    "vllm": {
+      "enabled": true,
+      "auto_start": false
+    },
+    "llamacpp": {
+      "enabled": true,
+      "auto_start": false
+    },
+    "localai": {
+      "enabled": false,
+      "auto_start": false
+    },
+    "comfyui": {
+      "enabled": false,
+      "auto_start": false
+    }
+  },
+  "inventory": {
+    "scan_dirs": [
+      "/models",
+      "/root/.cache/huggingface/hub"
+    ],
+    "auto_refresh": true,
+    "refresh_interval": 300
+  },
+  "security": {
+    "api_key_hash": null,
+    "allow_unauth": true
+  }
+}
