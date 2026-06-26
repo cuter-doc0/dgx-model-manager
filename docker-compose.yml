@@ -28,12 +28,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./config:/app/config
       - ./engines:/app/engines
+      - ./app:/app/app  # Live code reload (no rebuild needed)
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - HF_HOME=/root/.cache/huggingface
       - DOCKER_HOST=unix:///var/run/docker.sock
       - HF_TOKEN=${HF_TOKEN:-}
+      - PYTHONDONTWRITEBYTECODE=1
     networks:
       - model-network
     depends_on:
