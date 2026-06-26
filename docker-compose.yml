@@ -100,6 +100,7 @@ services:
     ports:
       - "${SGLANG_PORT:-4620}:30000"
     volumes:
+      - ${MODELS_PATH:-./models}:/models
       - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -125,6 +126,7 @@ services:
     ports:
       - "${VLLM_PORT:-4630}:8000"
     volumes:
+      - ${MODELS_PATH:-./models}:/models
       - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
