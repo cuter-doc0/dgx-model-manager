@@ -330,7 +330,7 @@ class EngineManager:
         
         elif engine == EngineType.VLLM:
             tp_size = kwargs.get("tensor_parallel_size", 1)
-            gpu_mem = kwargs.get("gpu_memory_utilization", 0.9)
+            gpu_mem = kwargs.get("gpu_memory_utilization", 0.8)
             
             # Build vLLM command with optional flags
             cmd_parts = [model]

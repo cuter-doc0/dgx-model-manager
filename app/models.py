@@ -107,7 +107,7 @@ class EngineControl(BaseModel):
     model: Optional[str] = None
     port: Optional[int] = None
     tensor_parallel_size: int = 1
-    gpu_memory_utilization: float = 0.9
+    gpu_memory_utilization: float = 0.8
     extra_args: Optional[dict] = None
 
 

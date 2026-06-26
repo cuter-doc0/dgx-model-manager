@@ -12,4 +12,4 @@ docker run -d --rm --gpus all --ipc=host \
   --host 0.0.0.0 \
   --port 8000 \
   --tensor-parallel-size 1 \
-  --gpu-memory-utilization 0.9
+  --gpu-memory-utilization 0.8
