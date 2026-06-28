@@ -142,7 +142,7 @@ services:
   # llama.cpp - GGUF Model Server
   # ============================================
   llamacpp:
-    image: ghcr.io/ggerganov/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda13
     container_name: dgx-llamacpp
     profiles: [llamacpp]
     deploy:
