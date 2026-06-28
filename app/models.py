@@ -18,8 +18,7 @@ class EngineType(str, Enum):
     SGLANG = "sglang"
     VLLM = "vllm"
     LLAMACPP = "llamacpp"
-    LOCALAI = "localai"
-    COMFYUI = "comfyui"
+    LITELLM = "litellm"
 
 
 class EngineStatus(str, Enum):
@@ -265,8 +264,6 @@ class AggregatedStatus(BaseModel):
     sglang: Optional[ServiceHealth] = None
     vllm: Optional[ServiceHealth] = None
     llamacpp: Optional[ServiceHealth] = None
-    localai: Optional[ServiceHealth] = None
-    comfyui: Optional[ServiceHealth] = None
     system: SystemStatus
 
 

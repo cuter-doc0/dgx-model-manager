@@ -9,9 +9,7 @@
     "litellm_base": "http://dgx-litellm:4000",
     "sglang_base": "http://dgx-sglang:30000",
     "vllm_base": "http://dgx-vllm:8000",
-    "llamacpp_base": "http://dgx-llamacpp:8080",
-    "localai_base": "http://dgx-localai:9090",
-    "comfyui_base": "http://dgx-comfyui:8188"
+    "llamacpp_base": "http://dgx-llamacpp:8080"
   },
   "ports": {
     "manager": 4600,
@@ -19,9 +17,7 @@
     "litellm": 4601,
     "sglang": 4620,
     "vllm": 4630,
-    "llamacpp": 4640,
-    "localai": 4650,
-    "comfyui": 4660
+    "llamacpp": 4640
   },
   "paths": {
     "models": "/models",
@@ -31,13 +27,13 @@
   "engines": {
     "ollama": {
       "enabled": true,
-      "auto_start": true
-    },
-    "sglang": {
-      "enabled": true,
       "auto_start": false
     },
     "vllm": {
+      "enabled": true,
+      "auto_start": false
+    },
+    "sglang": {
       "enabled": true,
       "auto_start": false
     },
@@ -45,12 +41,8 @@
       "enabled": true,
       "auto_start": false
     },
-    "localai": {
-      "enabled": false,
-      "auto_start": false
-    },
-    "comfyui": {
-      "enabled": false,
+    "litellm": {
+      "enabled": true,
       "auto_start": false
     }
   },

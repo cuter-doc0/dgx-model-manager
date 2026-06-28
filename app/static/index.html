@@ -313,8 +313,6 @@
                     <option value="sglang">SGLang</option>
                     <option value="vllm">vLLM</option>
                     <option value="llamacpp">llama.cpp</option>
-                    <option value="localai">LocalAI</option>
-                    <option value="comfyui">ComfyUI</option>
                 </select>
             </div>
             <div class="log-viewer" id="log-content">Select an engine to view logs</div>
@@ -987,8 +985,8 @@
             currentEngine = engine;
             
             // Set default ports based on engine
-            const defaultPorts = { sglang: 30000, vllm: 8000, llamacpp: 8080, ollama: 11434, localai: 9090, comfyui: 8188 };
-            document.getElementById('serve-port').value = defaultPorts[engine] || 30000;
+            const defaultPorts = { sglang: 30000, vllm: 8000, llamacpp: 8080, ollama: 11434 };
+            document.getElementById('serve-port').value = defaultPorts[engine] || 8000;
             
             // Load inventory for model selection
             try {

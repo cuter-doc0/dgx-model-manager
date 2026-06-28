@@ -1,18 +1,19 @@
 # DGX Spark Model Manager - Docker Compose Stack
-# Multi-engine inference management with LiteLLM routing
+# All engines defined here. Enable via COMPOSE_PROFILES in .env
+# Example: COMPOSE_PROFILES=manager,ollama,vllm,sglang
 
 services:
   # ============================================
   # Model Manager - Main Control Panel
   # ============================================
-  model-manager:
+  manager:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: dgx-model-manager
     restart: unless-stopped
     group_add:
-      - "0"  # Root group, ensures socket access
+      - "0"
     deploy:
       resources:
         reservations:
@@ -26,9 +27,10 @@ services:
       - ${MODELS_PATH:-./models}:/models
       - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
       - /var/run/docker.sock:/var/run/docker.sock
+      - .:/app/project              # Compose project files
       - ./config:/app/config
       - ./engines:/app/engines
-      - ./app:/app/app  # Live code reload (no rebuild needed)
+      - ./app:/app/app              # Live code reload
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
@@ -36,19 +38,18 @@ services:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - HF_TOKEN=${HF_TOKEN:-}
       - PYTHONDONTWRITEBYTECODE=1
+      - COMPOSE_PROJECT_NAME=dgx-spark
     networks:
       - model-network
-    depends_on:
-      - ollama
-      - litellm
 
   # ============================================
-  # Ollama - Primary Model Manager
+  # Ollama - GGUF Model Manager
   # ============================================
   ollama:
     image: ollama/ollama:latest
     container_name: dgx-ollama
     restart: unless-stopped
+    profiles: [ollama]
     deploy:
       resources:
         reservations:
@@ -61,6 +62,7 @@ services:
     volumes:
       - ollama-data:/root/.ollama
       - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+      - ${MODELS_PATH:-./models}:/models
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
     networks:
@@ -73,6 +75,7 @@ services:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: dgx-litellm
     restart: unless-stopped
+    profiles: [litellm]
     ports:
       - "${LITELLM_PORT:-4601}:4000"
     volumes:
@@ -82,42 +85,14 @@ services:
       - LITELLM_LOG=INFO
     networks:
       - model-network
-    depends_on:
-      - ollama
 
   # ============================================
-  # SGLang - High-Performance Inference
-  # ============================================
-  sglang:
-    image: lmsysorg/sglang:latest
-    container_name: dgx-sglang
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    ports:
-      - "${SGLANG_PORT:-4620}:30000"
-    volumes:
-      - ${MODELS_PATH:-./models}:/models
-      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-    networks:
-      - model-network
-    profiles:
-      - engines
-
-  # ============================================
-  # vLLM - Alternative Inference Engine
+  # vLLM - High-Performance Inference
   # ============================================
   vllm:
     image: vllm/vllm-openai:latest
     container_name: dgx-vllm
-    restart: unless-stopped
+    profiles: [vllm]
     deploy:
       resources:
         reservations:
@@ -132,10 +107,36 @@ services:
       - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - HF_HOME=/root/.cache/huggingface
+      - HF_TOKEN=${HF_TOKEN:-}
     networks:
       - model-network
-    profiles:
-      - engines
+
+  # ============================================
+  # SGLang - High-Performance Inference
+  # ============================================
+  sglang:
+    image: lmsysorg/sglang:latest
+    container_name: dgx-sglang
+    profiles: [sglang]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "${SGLANG_PORT:-4620}:30000"
+    volumes:
+      - ${MODELS_PATH:-./models}:/models
+      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_HOME=/root/.cache/huggingface
+      - HF_TOKEN=${HF_TOKEN:-}
+    networks:
+      - model-network
 
   # ============================================
   # llama.cpp - GGUF Model Server
@@ -143,7 +144,7 @@ services:
   llamacpp:
     image: ghcr.io/ggerganov/llama.cpp:server
     container_name: dgx-llamacpp
-    restart: unless-stopped
+    profiles: [llamacpp]
     deploy:
       resources:
         reservations:
@@ -159,65 +160,9 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
     networks:
       - model-network
-    profiles:
-      - engines
-
-  # ============================================
-  # LocalAI - Multi-Modal AI
-  # ============================================
-  localai:
-    image: localai/localai:latest
-    container_name: dgx-localai
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    ports:
-      - "${LOCALAI_PORT:-4650}:9090"
-    volumes:
-      - localai-models:/models
-      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - DEBUG=false
-    networks:
-      - model-network
-    profiles:
-      - engines
-
-  # ============================================
-  # ComfyUI - Image Generation
-  # ============================================
-  comfyui:
-    image: yanwk/comfyui-boot:latest
-    container_name: dgx-comfyui
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    ports:
-      - "${COMFYUI_PORT:-4660}:8188"
-    volumes:
-      - comfyui-data:/home/runner/ComfyUI
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-    networks:
-      - model-network
-    profiles:
-      - engines
 
 volumes:
   ollama-data:
-  localai-models:
-  comfyui-data:
 
 networks:
   model-network:

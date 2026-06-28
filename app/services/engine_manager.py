@@ -1,5 +1,9 @@
 """
-Engine manager service - Manage inference engines (SGLang, vLLM, llama.cpp, etc.)
+Engine manager service - Manage inference engines via Docker Compose
+
+All engines are defined in docker-compose.yml with individual profiles.
+This service uses `docker compose run` to start engines with a model,
+and `docker compose stop` to stop them.
 """
 
 import os
@@ -19,80 +23,97 @@ from app.config import get_config, EngineConfig
 
 logger = logging.getLogger(__name__)
 
-# Container name mapping
+# Compose service name mapping
+COMPOSE_SERVICES = {
+    EngineType.OLLAMA: "ollama",
+    EngineType.VLLM: "vllm",
+    EngineType.SGLANG: "sglang",
+    EngineType.LLAMACPP: "llamacpp",
+    EngineType.LITELLM: "litellm",
+}
+
+# Container name mapping (for status checks)
 CONTAINER_NAMES = {
     EngineType.OLLAMA: "dgx-ollama",
-    EngineType.SGLANG: "dgx-sglang",
     EngineType.VLLM: "dgx-vllm",
+    EngineType.SGLANG: "dgx-sglang",
     EngineType.LLAMACPP: "dgx-llamacpp",
-    EngineType.LOCALAI: "dgx-localai",
-    EngineType.COMFYUI: "dgx-comfyui",
+    EngineType.LITELLM: "dgx-litellm",
 }
 
-# Port mapping
+# External port mapping
 DEFAULT_PORTS = {
     EngineType.OLLAMA: 11434,
-    EngineType.SGLANG: 30000,
     EngineType.VLLM: 8000,
+    EngineType.SGLANG: 30000,
     EngineType.LLAMACPP: 8080,
-    EngineType.LOCALAI: 9090,
-    EngineType.COMFYUI: 8188,
+    EngineType.LITELLM: 4000,
 }
 
-# Image mapping
-ENGINE_IMAGES = {
-    EngineType.OLLAMA: "ollama/ollama:latest",
-    EngineType.SGLANG: "lmsysorg/sglang:latest",
-    EngineType.VLLM: "vllm/vllm-openai:latest",
-    EngineType.LLAMACPP: "ghcr.io/ggerganov/llama.cpp:server",
-    EngineType.LOCALAI: "localai/localai:latest",
-    EngineType.COMFYUI: "yanwk/comfyui-boot:latest",
-}
-
-# Script directories
-ENGINE_DIRS = {
-    EngineType.SGLANG: Path("/app/engines/sglang"),
-    EngineType.VLLM: Path("/app/engines/vllm"),
-    EngineType.LLAMACPP: Path("/app/engines/llamacpp"),
-    EngineType.LOCALAI: Path("/app/engines/localai"),
-    EngineType.COMFYUI: Path("/app/engines/comfyui"),
+# Host port env vars
+PORT_ENV_VARS = {
+    EngineType.OLLAMA: "OLLAMA_PORT",
+    EngineType.VLLM: "VLLM_PORT",
+    EngineType.SGLANG: "SGLANG_PORT",
+    EngineType.LLAMACPP: "LLAMACPP_PORT",
+    EngineType.LITELLM: "LITELLM_PORT",
 }
 
 
 class EngineManager:
-    """Manage inference engines"""
-    
+    """Manage inference engines via Docker Compose"""
+
     def __init__(self):
         self.config = get_config()
-    
+        self._compose_file = self._find_compose_file()
+
+    def _find_compose_file(self) -> Optional[str]:
+        """Find docker-compose.yml relative to this project"""
+        # Try /app/project (mounted in manager container)
+        candidates = [
+            "/app/project/docker-compose.yml",
+            "/app/docker-compose.yml",
+            str(Path(__file__).parent.parent.parent / "docker-compose.yml"),
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                return path
+        return None
+
+    def _compose_cmd(self, *args) -> subprocess.CompletedProcess:
+        """Run a docker compose command"""
+        if not self._compose_file:
+            logger.error("docker-compose.yml not found")
+            return subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="Compose file not found")
+
+        cmd = ["docker", "compose", "-f", self._compose_file] + list(args)
+        logger.debug(f"Running: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            logger.warning(f"Compose command failed: {result.stderr.strip()}")
+        return result
+
     def get_engine_state(self, engine: EngineType) -> EngineState:
         """Get current state of an engine"""
         container_name = CONTAINER_NAMES.get(engine)
         port = DEFAULT_PORTS.get(engine, 0)
-        api_base = getattr(self.config.services, f"{engine.value}_base", f"http://localhost:{port}")
-        
-        # Get external port from config (for display to users)
+        api_base = f"http://localhost:{port}"
         external_port = self.config.ports.get(engine.value, port)
-        
+
         if not docker_manager.is_available():
             return EngineState(
-                engine=engine,
-                status=EngineStatus.UNKNOWN,
-                port=external_port,
-                api_base=api_base,
-                error="Docker not available"
+                engine=engine, status=EngineStatus.UNKNOWN,
+                port=external_port, api_base=api_base, error="Docker not available"
             )
-        
+
         status_info = docker_manager.get_container_status(container_name)
-        
+
         if not status_info.get("exists"):
             return EngineState(
-                engine=engine,
-                status=EngineStatus.STOPPED,
-                port=external_port,
-                api_base=api_base
+                engine=engine, status=EngineStatus.STOPPED,
+                port=external_port, api_base=api_base
             )
-        
+
         status_map = {
             "running": EngineStatus.RUNNING,
             "exited": EngineStatus.STOPPED,
@@ -100,110 +121,82 @@ class EngineManager:
             "paused": EngineStatus.STOPPED,
             "dead": EngineStatus.ERROR,
         }
-        
         status = status_map.get(status_info.get("status", ""), EngineStatus.UNKNOWN)
-        
-        # Try to get running model
+
         running_model = None
         if status == EngineStatus.RUNNING:
             running_model = self._detect_running_model(engine, api_base)
-        
+
         return EngineState(
-            engine=engine,
-            status=status,
-            port=external_port,
-            container_id=status_info.get("id"),
-            container_name=container_name,
-            running_model=running_model,
-            api_base=api_base
+            engine=engine, status=status, port=external_port,
+            container_id=status_info.get("id"), container_name=container_name,
+            running_model=running_model, api_base=api_base
         )
-    
+
     def _detect_running_model(self, engine: EngineType, api_base: str) -> Optional[str]:
         """Detect which model is running on an engine"""
         try:
             if engine == EngineType.OLLAMA:
-                # Ollama doesn't have a direct "running" endpoint
-                # We'd need to check process or use ps
                 return None
-            
-            elif engine in [EngineType.SGLANG, EngineType.VLLM, EngineType.LLAMACPP]:
-                # These use OpenAI-compatible API
-                with httpx.Client(timeout=5) as client:
-                    response = client.get(f"{api_base}/v1/models")
-                    if response.status_code == 200:
-                        models = response.json().get("data", [])
-                        if models:
-                            return models[0].get("id")
+            with httpx.Client(timeout=5) as client:
+                response = client.get(f"{api_base}/v1/models")
+                if response.status_code == 200:
+                    models = response.json().get("data", [])
+                    if models:
+                        return models[0].get("id")
         except Exception as e:
             logger.debug(f"Could not detect running model for {engine}: {e}")
-        
         return None
-    
+
     def get_all_engines(self) -> List[EngineState]:
         """Get state of all engines"""
         states = []
         for engine in EngineType:
-            if self.config.engines.get(engine.value, EngineConfig()).enabled:
+            cfg = self.config.engines.get(engine.value, EngineConfig())
+            if cfg.enabled:
                 states.append(self.get_engine_state(engine))
         return states
-    
+
     def _validate_model_path(self, model_path: str, engine: EngineType) -> tuple[bool, str, str]:
-        """Validate model path before starting engine
-        
-        Returns:
-            Tuple of (is_valid, error_message, resolved_path)
-        """
+        """Validate model path before starting engine"""
         if not model_path:
             return True, "", model_path
-        
-        # Path exists locally - validate it
+
         if os.path.exists(model_path):
             if os.path.isdir(model_path):
                 return self._validate_local_directory(model_path)
-            return True, "", model_path  # Single file (e.g., GGUF)
-        
-        # Path doesn't exist locally - try to resolve it as a HuggingFace model ID
+            return True, "", model_path
+
         model_id = self._extract_hf_model_id(model_path)
         if model_id:
-            # Let vLLM auto-download from HuggingFace
             return True, "", model_id
-        
+
         return False, f"Model path does not exist: {model_path}. Download it from the HuggingFace tab first.", model_path
-    
+
     def _extract_hf_model_id(self, model_path: str) -> Optional[str]:
-        """Extract a HuggingFace model ID from a local path or direct ID
-        
-        Converts:
-          /models/lyf_Qwen3.6-35B-A3B -> lyf/Qwen3.6-35B-A3B  (path under /models)
-          lyf/Qwen3.6-35B-A3B        -> lyf/Qwen3.6-35B-A3B  (already an HF ID)
-          /root/.cache/.../models--lyf--Qwen3.6-35B-A3B -> None (HF cache, handled by snapshot resolution)
-        """
+        """Extract a HuggingFace model ID from a local path or direct ID"""
         models_dir = self.config.paths.get("models", "/models")
-        
+
         if model_path.startswith(models_dir + "/"):
             rel_path = model_path[len(models_dir) + 1:]
             first_underscore = rel_path.find("_")
             if first_underscore > 0:
                 namespace = rel_path[:first_underscore]
                 name = rel_path[first_underscore + 1:]
-                # Verify it looks like a valid HF model ID
                 if namespace and name:
                     return f"{namespace}/{name}"
-        
-        # Direct HuggingFace model ID (contains / but doesn't start with /)
+
         if "/" in model_path and not model_path.startswith("/"):
             parts = model_path.split("/")
             if len(parts) == 2 and all(part.strip() for part in parts):
                 return model_path
-        
+
         return None
-    
+
     def _validate_local_directory(self, model_path: str) -> tuple[bool, str, str]:
         """Validate a local model directory has required files"""
-        # Check for config.json (required by vLLM/SGLang)
         config_path = os.path.join(model_path, "config.json")
         if not os.path.exists(config_path):
-            # Check if this is a HuggingFace cache directory (models-- prefix)
             if "models--" in model_path:
                 snapshots_dir = os.path.join(model_path, "snapshots")
                 if os.path.exists(snapshots_dir):
@@ -211,329 +204,192 @@ class EngineManager:
                     if snapshots:
                         snapshot_path = os.path.join(snapshots_dir, snapshots[0])
                         if os.path.exists(os.path.join(snapshot_path, "config.json")):
-                            logger.info(f"Found HuggingFace cache directory, using snapshot: {snapshot_path}")
                             return self._validate_local_directory(snapshot_path)
-            
             return False, f"Model directory does not contain config.json: {model_path}", model_path
-        
-        # Check for model weight files
+
         has_weights = any(
             f.endswith(('.safetensors', '.bin', '.gguf'))
             for f in os.listdir(model_path)
         )
         if not has_weights:
             return False, f"Model directory does not contain weight files: {model_path}", model_path
-        
+
         return True, "", model_path
-    
-    def start_engine(self, engine: EngineType, model: Optional[str] = None, 
+
+    def start_engine(self, engine: EngineType, model: Optional[str] = None,
                      port: Optional[int] = None, **kwargs) -> bool:
-        """Start an engine"""
-        logger.info(f"=== start_engine called: engine={engine.value}, model={model}, kwargs={kwargs} ===")
-        container_name = CONTAINER_NAMES.get(engine)
-        image = ENGINE_IMAGES.get(engine)
-        default_port = DEFAULT_PORTS.get(engine)
-        
-        if not container_name or not image:
+        """Start an engine with a model using docker compose run"""
+        service = COMPOSE_SERVICES.get(engine)
+        if not service:
             logger.error(f"Unknown engine: {engine}")
             return False
-        
+
         if not docker_manager.is_available():
             logger.error(f"Docker not available: {docker_manager.get_error()}")
             return False
-        
-        # Validate model path if provided
+
+        # Validate model
         resolved_model = model
         if model:
             is_valid, error_msg, resolved_model = self._validate_model_path(model, engine)
-            logger.info(f"Model validation: is_valid={is_valid}, resolved_model={resolved_model}, error={error_msg}")
+            logger.info(f"Model validation: valid={is_valid}, model={resolved_model}, error={error_msg}")
             if not is_valid:
                 logger.error(f"Model validation failed: {error_msg}")
                 return False
-        
-        # Check if already running
-        state = self.get_engine_state(engine)
-        if state.status == EngineStatus.RUNNING:
-            logger.info(f"Engine {engine.value} already running")
-            return True
-        
-        # Build port mapping
-        actual_port = port or default_port
-        ports = {f"{default_port}/tcp": actual_port}
-        
-        # Build volume mappings
-        hf_cache = self.config.paths.get("hf_cache", "~/.cache/huggingface")
-        models_path = self.config.paths.get("models", "/models")
-        
-        volumes = {
-            hf_cache: {"bind": "/root/.cache/huggingface", "mode": "rw"},
-        }
-        
-        # Add /models mount for engines that load local models
-        if engine in [EngineType.VLLM, EngineType.SGLANG, EngineType.LLAMACPP, EngineType.LOCALAI, EngineType.OLLAMA]:
-            volumes[models_path] = {"bind": "/models", "mode": "rw"}
-        
-        # Build environment
-        environment = {
-            "NVIDIA_VISIBLE_DEVICES": "all"
-        }
-        
-        # Build command based on engine and model
+
+        # Build command for the engine
         command = self._build_engine_command(engine, resolved_model, **kwargs)
-        logger.info(f"Built command: {command}")
-        
+        logger.info(f"Engine command: {command}")
+
         if not command:
-            logger.error(f"No command built for engine {engine.value} with model {resolved_model}")
+            logger.error(f"No command built for {engine.value}")
             return False
-        
-        # Detect Docker network (look for compose project network)
-        network = self._detect_docker_network()
-        
-        # Run container
-        logger.info(f"Starting container: image={image}, name={container_name}, command={command}")
-        container = docker_manager.run_container(
-            image=image,
-            name=container_name,
-            ports=ports,
-            volumes=volumes,
-            environment=environment,
-            command=command,
-            gpu=True,
-            network=network
-        )
-        
-        if container:
-            logger.info(f"Started engine {engine.value} with container {container_name}")
+
+        # Stop existing container if running
+        self.stop_engine(engine)
+
+        # Start with docker compose run
+        # --rm: remove container when stopped
+        # -d: detach
+        compose_args = [
+            "run", "--rm", "-d",
+            "--name", CONTAINER_NAMES.get(engine, f"dgx-{engine.value}"),
+            service,
+        ] + command.split()
+
+        logger.info(f"Starting engine: docker compose {' '.join(compose_args)}")
+        result = self._compose_cmd(*compose_args)
+
+        if result.returncode == 0:
+            logger.info(f"Started engine {engine.value} (service={service})")
             return True
-        
-        logger.error(f"Failed to start container {container_name}")
+
+        logger.error(f"Failed to start engine {engine.value}: {result.stderr.strip()}")
         return False
-    
+
     def _build_engine_command(self, engine: EngineType, model: Optional[str] = None, **kwargs) -> Optional[str]:
         """Build startup command for engine"""
         if not model:
             return None
-        
-        # Convert local /models/org_name path to HF model ID (org/name)
+
+        # Convert local /models/org_name path to HF model ID
         if model.startswith("/models/") and "_" in model.split("/models/")[1]:
             hf_id = self._extract_hf_model_id(model)
             if hf_id:
                 logger.info(f"Converted model path to HF model ID: {model} -> {hf_id}")
                 model = hf_id
-        
-        # Check if model path exists locally
-        model_exists_locally = os.path.isdir(model) or os.path.isfile(model)
-        
-        if engine == EngineType.SGLANG:
-            tp_size = kwargs.get("tensor_parallel_size", 1)
-            return f"python3 -m sglang.launch_server --model-path {model} --host 0.0.0.0 --port 30000 --tensor-parallel-size {tp_size} --trust-remote-code"
-        
-        elif engine == EngineType.VLLM:
-            tp_size = kwargs.get("tensor_parallel_size", 1)
-            gpu_mem = kwargs.get("gpu_memory_utilization", 0.8)
-            
-            # Build vLLM command with optional flags
-            cmd_parts = [model]
-            
-            # Detect quantization from config.json if available
-            quantization = None
-            if model_exists_locally:
-                config_path = os.path.join(model, "config.json")
-                if os.path.exists(config_path):
-                    try:
-                        with open(config_path) as f:
-                            config = json.load(f)
-                        qc = config.get("quantization_config", {})
-                        quant_method = qc.get("quant_method", "")
-                        if quant_method:
-                            quantization = quant_method
-                        elif "NVFP4" in str(config).upper():
-                            quantization = "compressed-tensors"
-                    except Exception:
-                        pass
-            
-            # Fallback: detect from model name
-            if not quantization:
-                model_lower = model.lower()
-                if "nvfp4" in model_lower or "fp4" in model_lower:
-                    quantization = "compressed-tensors"
-                elif "fp8" in model_lower:
-                    quantization = "fp8"
-                elif "awq" in model_lower:
-                    quantization = "awq"
-                elif "gptq" in model_lower:
-                    quantization = "gptq"
-                elif "int4" in model_lower:
-                    quantization = "bitsandbytes"
-                elif "int8" in model_lower:
-                    quantization = "bitsandbytes"
-            
-            if quantization:
-                cmd_parts.append(f"--quantization {quantization}")
-            
-            # Trust remote code for custom architectures
-            if model_exists_locally:
-                config_path = os.path.join(model, "config.json")
-                if os.path.exists(config_path):
-                    try:
-                        with open(config_path) as f:
-                            config = json.load(f)
-                        if config.get("auto_map") or config.get("architectures", [])[0:1] not in [["LlamaForCausalLM"], ["MistralForCausalLM"]]:
-                            cmd_parts.append("--trust-remote-code")
-                    except Exception:
-                        cmd_parts.append("--trust-remote-code")
-                else:
-                    cmd_parts.append("--trust-remote-code")
-            else:
-                cmd_parts.append("--trust-remote-code")
-            
-            # Add common options
-            cmd_parts.extend([
-                "--host 0.0.0.0",
-                "--port 8000",
-                f"--tensor-parallel-size {tp_size}",
-                f"--gpu-memory-utilization {gpu_mem}"
-            ])
-            
-            # vLLM Docker image entrypoint is already "vllm serve"
-            # Just pass the model as positional argument with options
-            return " ".join(cmd_parts)
-        
+
+        if engine == EngineType.VLLM:
+            return self._build_vllm_command(model, **kwargs)
+        elif engine == EngineType.SGLANG:
+            return self._build_sglang_command(model, **kwargs)
         elif engine == EngineType.LLAMACPP:
-            return f"--model {model} --host 0.0.0.0 --port 8080"
-        
+            return self._build_llamacpp_command(model, **kwargs)
+        elif engine == EngineType.OLLAMA:
+            return f"serve"  # Ollama just needs to run, model loaded via API
+        elif engine == EngineType.LITELLM:
+            return None  # LiteLLM uses its own config
+
         return None
-    
-    def _detect_docker_network(self) -> Optional[str]:
-        """Detect the Docker Compose network for this project"""
-        try:
-            if not docker_manager.is_available():
-                return None
-            
-            # Use Docker CLI to list networks
-            result = docker_manager._run([
-                "network", "ls", "--format", "{{.Name}}"
-            ])
-            
-            if result.returncode == 0:
-                for net_name in result.stdout.strip().split("\n"):
-                    if 'model-network' in net_name:
-                        return net_name
-            
-            return None
-        except Exception as e:
-            logger.debug(f"Could not detect Docker network: {e}")
-            return None
-    
+
+    def _build_vllm_command(self, model: str, **kwargs) -> str:
+        """Build vLLM serve command"""
+        tp_size = kwargs.get("tensor_parallel_size", 1)
+        gpu_mem = kwargs.get("gpu_memory_utilization", 0.8)
+
+        cmd_parts = [f"serve {model}"]
+
+        # Detect quantization
+        quantization = self._detect_quantization(model)
+        if quantization:
+            cmd_parts.append(f"--quantization {quantization}")
+
+        cmd_parts.extend([
+            "--trust-remote-code",
+            "--host 0.0.0.0",
+            "--port 8000",
+            f"--tensor-parallel-size {tp_size}",
+            f"--gpu-memory-utilization {gpu_mem}",
+        ])
+
+        return " ".join(cmd_parts)
+
+    def _build_sglang_command(self, model: str, **kwargs) -> str:
+        """Build SGLang launch command"""
+        tp_size = kwargs.get("tensor_parallel_size", 1)
+        return (
+            f"python3 -m sglang.launch_server "
+            f"--model-path {model} --host 0.0.0.0 --port 30000 "
+            f"--tensor-parallel-size {tp_size} --trust-remote-code"
+        )
+
+    def _build_llamacpp_command(self, model: str, **kwargs) -> str:
+        """Build llama.cpp server command"""
+        return f"--model {model} --host 0.0.0.0 --port 8080"
+
+    def _detect_quantization(self, model: str) -> Optional[str]:
+        """Detect quantization from model config or name"""
+        # Try config.json first
+        model_exists = os.path.isdir(model) or os.path.isfile(model)
+        if model_exists:
+            config_path = os.path.join(model, "config.json")
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path) as f:
+                        config = json.load(f)
+                    qc = config.get("quantization_config", {})
+                    quant_method = qc.get("quant_method", "")
+                    if quant_method:
+                        return quant_method
+                except Exception:
+                    pass
+
+        # Fallback: detect from model name
+        model_lower = model.lower()
+        if "nvfp4" in model_lower or "fp4" in model_lower:
+            return "compressed-tensors"
+        elif "fp8" in model_lower:
+            return "fp8"
+        elif "awq" in model_lower:
+            return "awq"
+        elif "gptq" in model_lower:
+            return "gptq"
+        return None
+
     def stop_engine(self, engine: EngineType) -> bool:
         """Stop an engine"""
-        container_name = CONTAINER_NAMES.get(engine)
-        if not container_name:
+        service = COMPOSE_SERVICES.get(engine)
+        if not service:
             return False
-        
-        return docker_manager.stop_container(container_name)
-    
+
+        container_name = CONTAINER_NAMES.get(engine)
+        if container_name:
+            # Try compose stop first
+            result = self._compose_cmd("stop", service)
+            # Also force-remove the container
+            docker_manager.remove_container(container_name, force=True)
+
+        return True
+
     def restart_engine(self, engine: EngineType) -> bool:
         """Restart an engine"""
-        container_name = CONTAINER_NAMES.get(engine)
-        if not container_name:
-            return False
-        
-        return docker_manager.restart_container(container_name)
-    
+        self.stop_engine(engine)
+        return True
+
     def get_engine_logs(self, engine: EngineType, tail: int = 100) -> str:
         """Get engine logs"""
         container_name = CONTAINER_NAMES.get(engine)
         if not container_name:
             return ""
-        
         return docker_manager.get_container_logs(container_name, tail=tail)
-    
+
     def list_profiles(self, engine: EngineType) -> List[EngineProfile]:
         """List available profiles for an engine"""
-        profiles = []
-        engine_dir = ENGINE_DIRS.get(engine)
-        
-        if not engine_dir or not engine_dir.exists():
-            return profiles
-        
-        for script_file in engine_dir.glob("start_*.sh"):
-            profile = self._parse_profile(script_file, engine)
-            if profile:
-                profiles.append(profile)
-        
-        return profiles
-    
-    def _parse_profile(self, script_path: Path, engine: EngineType) -> Optional[EngineProfile]:
-        """Parse profile from script file"""
-        try:
-            with open(script_path, "r") as f:
-                content = f.read()
-            
-            lines = content.split("\n")
-            name = None
-            description = None
-            vram = None
-            
-            for line in lines[:20]:  # Only check first 20 lines
-                if line.startswith("# Name:"):
-                    name = line.split(":", 1)[1].strip()
-                elif line.startswith("# Description:"):
-                    description = line.split(":", 1)[1].strip()
-                elif line.startswith("# VRAM:"):
-                    try:
-                        vram = int(line.split(":", 1)[1].strip())
-                    except ValueError:
-                        pass
-            
-            if not name:
-                name = script_path.stem.replace("start_", "").replace("_", " ").title()
-            
-            return EngineProfile(
-                name=name,
-                filename=script_path.name,
-                description=description,
-                vram_required=vram,
-                port=DEFAULT_PORTS.get(engine)
-            )
-            
-        except Exception as e:
-            logger.error(f"Error parsing profile {script_path}: {e}")
-            return None
-    
+        return []
+
     def start_with_profile(self, engine: EngineType, profile_name: str) -> bool:
-        """Start engine using a profile script"""
-        engine_dir = ENGINE_DIRS.get(engine)
-        if not engine_dir:
-            return False
-        
-        script_path = engine_dir / profile_name
-        if not script_path.exists():
-            logger.error(f"Profile not found: {profile_name}")
-            return False
-        
-        try:
-            # Make script executable
-            os.chmod(script_path, 0o755)
-            
-            # Execute script
-            result = subprocess.run(
-                ["bash", str(script_path)],
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            
-            if result.returncode != 0:
-                logger.error(f"Profile script failed: {result.stderr}")
-                return False
-            
-            logger.info(f"Started engine {engine.value} with profile {profile_name}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error starting with profile: {e}")
-            return False
+        """Start engine using a profile (deprecated, use start_engine instead)"""
+        return False
 
 
 # Singleton instance

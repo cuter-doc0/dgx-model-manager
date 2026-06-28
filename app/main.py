@@ -149,23 +149,6 @@ async def get_engine_logs(engine: EngineType, tail: int = Query(100, ge=1, le=10
     return {"engine": engine.value, "logs": logs}
 
 
-@app.get("/api/engines/{engine}/profiles")
-async def list_engine_profiles(engine: EngineType):
-    """List available profiles for an engine"""
-    profiles = engine_manager.list_profiles(engine)
-    return {"engine": engine.value, "profiles": profiles}
-
-
-@app.post("/api/engines/{engine}/profiles/{profile_name}/start")
-async def start_engine_with_profile(engine: EngineType, profile_name: str):
-    """Start engine with a specific profile"""
-    success = engine_manager.start_with_profile(engine, profile_name)
-    if success:
-        return APIResponse(success=True, message=f"Started {engine.value} with profile {profile_name}")
-    else:
-        raise HTTPException(status_code=500, detail="Failed to start with profile")
-
-
 # ============================================
 # Ollama Endpoints
 # ============================================

@@ -29,8 +29,6 @@ class ServiceConfig(BaseModel):
     sglang_base: str = "http://dgx-sglang:30000"
     vllm_base: str = "http://dgx-vllm:8000"
     llamacpp_base: str = "http://dgx-llamacpp:8080"
-    localai_base: str = "http://dgx-localai:9090"
-    comfyui_base: str = "http://dgx-comfyui:8188"
 
 
 class EngineConfig(BaseModel):
@@ -63,8 +61,6 @@ class Settings(BaseModel):
         "sglang": 4620,
         "vllm": 4630,
         "llamacpp": 4640,
-        "localai": 4650,
-        "comfyui": 4660
     })
     paths: dict[str, str] = Field(default_factory=lambda: {
         "models": "/models",
@@ -72,12 +68,11 @@ class Settings(BaseModel):
         "litellm_config": "/app/config/litellm_config.yaml"
     })
     engines: dict[str, EngineConfig] = Field(default_factory=lambda: {
-        "ollama": EngineConfig(enabled=True, auto_start=True),
-        "sglang": EngineConfig(enabled=True, auto_start=False),
+        "ollama": EngineConfig(enabled=True, auto_start=False),
         "vllm": EngineConfig(enabled=True, auto_start=False),
+        "sglang": EngineConfig(enabled=True, auto_start=False),
         "llamacpp": EngineConfig(enabled=True, auto_start=False),
-        "localai": EngineConfig(enabled=False, auto_start=False),
-        "comfyui": EngineConfig(enabled=False, auto_start=False)
+        "litellm": EngineConfig(enabled=True, auto_start=False),
     })
     inventory: InventoryConfig = Field(default_factory=InventoryConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
