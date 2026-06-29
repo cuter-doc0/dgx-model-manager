@@ -274,8 +274,10 @@ class EngineManager:
         if not model:
             return None
 
-        # Convert local /models/org_name path to HF model ID
-        if model.startswith("/models/") and "_" in model.split("/models/")[1]:
+        # Only convert local /models/org_name path to HF model ID if the
+        # model does NOT exist on disk. For engines that mount /models/
+        # (vLLM, SGLang, llama.cpp), keep using the local path when available.
+        if model.startswith("/models/") and "_" in model.split("/models/")[1] and not os.path.exists(model):
             hf_id = self._extract_hf_model_id(model)
             if hf_id:
                 logger.info(f"Converted model path to HF model ID: {model} -> {hf_id}")
