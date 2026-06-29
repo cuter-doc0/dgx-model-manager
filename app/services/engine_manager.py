@@ -87,10 +87,12 @@ class EngineManager:
             return subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="Compose file not found")
 
         cmd = ["docker", "compose", "-f", self._compose_file] + list(args)
-        logger.debug(f"Running: {' '.join(cmd)}")
+        logger.info(f"Running compose command: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
-            logger.warning(f"Compose command failed: {result.stderr.strip()}")
+            logger.error(f"Compose command failed: returncode={result.returncode}, stderr={result.stderr.strip()}, stdout={result.stdout.strip()}")
+        else:
+            logger.info(f"Compose command succeeded: stdout={result.stdout.strip()}")
         return result
 
     def get_engine_state(self, engine: EngineType) -> EngineState:
@@ -264,7 +266,7 @@ class EngineManager:
             logger.info(f"Started engine {engine.value} (service={service})")
             return True
 
-        logger.error(f"Failed to start engine {engine.value}: {result.stderr.strip()}")
+        logger.error(f"Failed to start engine {engine.value}: returncode={result.returncode}, stderr={result.stderr.strip()}, stdout={result.stdout.strip()}")
         return False
 
     def _build_engine_command(self, engine: EngineType, model: Optional[str] = None, **kwargs) -> Optional[str]:
